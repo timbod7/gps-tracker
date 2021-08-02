@@ -5,7 +5,8 @@
 extern crate panic_halt;
 
 use cortex_m_rt::{entry};
-use stm32f1xx_hal::{prelude::*, stm32, spi, delay::Delay};
+use stm32f1xx_hal::{prelude::*, stm32, spi, serial, delay::Delay};
+use nb::block;
 
 use rtic::app;
 use rtic::cyccnt::{Duration};
@@ -19,15 +20,16 @@ use embedded_graphics::{
 };
 use display_interface_spi::SPIInterface;
 
-type Display = ili9341::Ili9341<
- display_interface_spi::SPIInterface<stm32f1xx_hal::spi::Spi<stm32f1xx_hal::pac::SPI1, stm32f1xx_hal::spi::Spi1NoRemap, (stm32f1xx_hal::gpio::gpioa::PA5<stm32f1xx_hal::gpio::Alternate<stm32f1xx_hal::gpio::PushPull>>, stm32f1xx_hal::gpio::gpioa::PA6<stm32f1xx_hal::gpio::Input<stm32f1xx_hal::gpio::Floating>>, stm32f1xx_hal::gpio::gpioa::PA7<stm32f1xx_hal::gpio::Alternate<stm32f1xx_hal::gpio::PushPull>>), u8>, stm32f1xx_hal::gpio::gpioa::PA3<stm32f1xx_hal::gpio::Output<stm32f1xx_hal::gpio::PushPull>>, stm32f1xx_hal::gpio::gpioa::PA2<stm32f1xx_hal::gpio::Output<stm32f1xx_hal::gpio::PushPull>>>,
- stm32f1xx_hal::gpio::gpioa::PA4<stm32f1xx_hal::gpio::Output<stm32f1xx_hal::gpio::PushPull>>
- >;
+type Display = ili9341::Ili9341<display_interface_spi::SPIInterface<stm32f1xx_hal::spi::Spi<stm32f1xx_hal::pac::SPI1, stm32f1xx_hal::spi::Spi1NoRemap, (stm32f1xx_hal::gpio::gpioa::PA5<stm32f1xx_hal::gpio::Alternate<stm32f1xx_hal::gpio::PushPull>>, stm32f1xx_hal::gpio::gpioa::PA6<stm32f1xx_hal::gpio::Input<stm32f1xx_hal::gpio::Floating>>, stm32f1xx_hal::gpio::gpioa::PA7<stm32f1xx_hal::gpio::Alternate<stm32f1xx_hal::gpio::PushPull>>), u8>, stm32f1xx_hal::gpio::gpioa::PA3<stm32f1xx_hal::gpio::Output<stm32f1xx_hal::gpio::PushPull>>, stm32f1xx_hal::gpio::gpioa::PA2<stm32f1xx_hal::gpio::Output<stm32f1xx_hal::gpio::PushPull>>>,stm32f1xx_hal::gpio::gpioa::PA4<stm32f1xx_hal::gpio::Output<stm32f1xx_hal::gpio::PushPull>>>;
+type Serial = stm32f1xx_hal::serial::Serial<stm32f1xx_hal::pac::USART1, (stm32f1xx_hal::gpio::gpioa::PA9<stm32f1xx_hal::gpio::Alternate<stm32f1xx_hal::gpio::PushPull>>, stm32f1xx_hal::gpio::gpioa::PA10<stm32f1xx_hal::gpio::Input<stm32f1xx_hal::gpio::Floating>>)>;
+
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true)]
 const APP: () = {
   struct Resources {
-    display: Display
+    display: Display,
+    serial: Serial,
+    gps: Option<nmea0183::GGA>
   }
 
   #[init(schedule = [])]
@@ -69,9 +71,8 @@ const APP: () = {
         clocks,
         &mut rcc.apb2,
     );
-
     let mut delay = Delay::new(cx.core.SYST, clocks);
-    let mut display = Ili9341::new(
+    let display = Ili9341::new(
       SPIInterface::new(spi, dc, cs),
       reset,
       &mut delay,
@@ -79,23 +80,69 @@ const APP: () = {
       ili9341::DisplaySize320x480,
       ).unwrap();
 
-    let character_style = MonoTextStyle::new(&profont::PROFONT_24_POINT, Rgb565::WHITE);
-    let text_style = TextStyle::with_baseline(Baseline::Top);
+    // Configure the serial port for GPS data
+    let tx = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
+    let rx = gpioa.pa10;
 
-    let test_text = "Hello world!";
-
-    Text::with_text_style(test_text, Point::zero(), character_style, text_style)
-        .draw(&mut display).unwrap();
+    let mut serial = serial::Serial::usart1(
+      cx.device.USART1,
+      (tx, rx),
+      &mut afio.mapr,
+      serial::Config::default().baudrate(9600.bps()),
+      clocks,
+      &mut rcc.apb2,
+    );
+    serial.listen(serial::Event::Rxne);
 
     init::LateResources {
       display,
+      serial,
+      gps: Option::None,
     }
   }
 
-  #[idle]
-  fn idle(_cx: idle::Context) -> ! {
+  #[task(binds = USART1, resources=[serial, gps])]
+  fn usart1(cx: usart1::Context) {
+    static mut PARSER: Option<nmea0183::Parser> = None;
+
+    let parser = PARSER.get_or_insert_with(|| {
+      nmea0183::Parser::new()
+    });
+
+    let received: u8 = block!(cx.resources.serial.read()).unwrap();
+    if let Some(result) = parser.parse_from_byte(received) {
+      match result {
+        Ok(nmea0183::ParseResult::GGA(Some(gga))) => {
+          *cx.resources.gps = Option::from(gga);
+        },
+        Ok(_) => {},
+        Err(_) => {},
+      }
+    }
+  }
+
+  #[idle(resources=[gps,display])]
+  fn idle(mut cx: idle::Context) -> ! {
+    let character_style = MonoTextStyle::new(&profont::PROFONT_12_POINT, Rgb565::WHITE);
+    let text_style = TextStyle::with_baseline(Baseline::Top);
+    let cursor: Point = Point::zero();
+
     loop {
       cortex_m::asm::wfi();
+
+
+      // Fetch the updated GPS value, if there is one
+      let mut gga: Option<nmea0183::GGA> = Option::None;
+      cx.resources.gps.lock( |gps| {
+        gga = gps.take();        
+      });
+
+      // And show it
+      if let Some(gga) = gga {
+        let content = "GGA"; 
+        Text::with_text_style(content, cursor, character_style, text_style)
+        .draw(cx.resources.display).unwrap();
+      }
     }
   }
 
@@ -103,6 +150,6 @@ const APP: () = {
   // using software tasks; these free interrupts will be used to dispatch the
   // software tasks.
   extern "C" {
-      fn USART1();
+      fn USART3();
   }
 };

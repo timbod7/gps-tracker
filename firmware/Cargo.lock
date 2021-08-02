@@ -276,6 +276,8 @@ dependencies = [
  "embedded-graphics",
  "embedded-hal",
  "ili9341",
+ "nb 1.0.0",
+ "nmea0183",
  "panic-halt",
  "panic-rtt-target",
  "profont",
@@ -324,6 +326,12 @@ name = "nb"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "546c37ac5d9e56f55e73b677106873d9d9f5190605e41a856503623648488cae"
+
+[[package]]
+name = "nmea0183"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "561e063423af18a1550ba19486dd4d401b8e1a21eb97eea8e70c569e1576af70"
 
 [[package]]
 name = "num-traits"
