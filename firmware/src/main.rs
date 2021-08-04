@@ -1,6 +1,8 @@
 #![no_main]
 #![no_std]
 
+use rtt_target::{rtt_init_print, rprintln};
+
 // set the panic handler
 extern crate panic_halt;
 
@@ -32,6 +34,10 @@ const APP: () = {
 
   #[init(schedule = [])]
   fn init(mut cx: init::Context) -> init::LateResources {
+    rtt_init_print!();
+    rprintln!("Starting init");
+    rprintln!("Starting init2");
+
     cx.core.DCB.enable_trace();
     // required on Cortex-M7 devices that software lock the DWT (e.g. STM32F7)
     cortex_m::peripheral::DWT::unlock();
@@ -49,6 +55,8 @@ const APP: () = {
       .freeze(&mut flash.acr);
 
     let mut afio = cx.device.AFIO.constrain(&mut rcc.apb2);
+    rprintln!("Starting init3");
+
 
     // configure the gpio ports
     let mut gpioa = cx.device.GPIOA.split(&mut rcc.apb2);
@@ -79,21 +87,29 @@ const APP: () = {
       ili9341::DisplaySize320x480,
       ).unwrap();
 
+    rprintln!("Starting init4");
+
     let character_style = MonoTextStyle::new(&profont::PROFONT_24_POINT, Rgb565::WHITE);
     let text_style = TextStyle::with_baseline(Baseline::Top);
 
     let test_text = "Hello world!";
 
+    rprintln!("Starting init5");
+
     Text::with_text_style(test_text, Point::zero(), character_style, text_style)
         .draw(&mut display).unwrap();
+
+    rprintln!("Starting init6");
 
     init::LateResources {
       display,
     }
+
   }
 
   #[idle]
   fn idle(_cx: idle::Context) -> ! {
+    rprintln!("Starting idle");
     loop {
       cortex_m::asm::wfi();
     }
