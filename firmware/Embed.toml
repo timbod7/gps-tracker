@@ -7,7 +7,7 @@ halt_afterwards = false
 restore_unwritten_bytes = false
 
 [default.general]
-chip = "STM32F103C8"
+chip = "STM32F401CEUx"
 log_level = "Warn"
 
 [default.rtt]
