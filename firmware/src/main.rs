@@ -2,6 +2,7 @@
 #![no_std]
 
 mod u8writer;
+mod fonts;
 
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use rtt_target::{rtt_init_print, rprintln};
@@ -20,7 +21,9 @@ use embedded_graphics::{
   pixelcolor::Rgb565,
   prelude::*,
   text::{Baseline, Text, TextStyle},
-  primitives::{Rectangle, PrimitiveStyle},
+  primitives::{
+    Rectangle, PrimitiveStyle
+},
 };
 use display_interface_spi::SPIInterface;
 use u8writer::U8Writer;
@@ -123,36 +126,51 @@ const APP: () = {
       nmea0183::Parser::new()
     });
 
-    let received: u8 = block!(cx.resources.serial.read()).unwrap();
+    // *parser.clear();
 
-    if let Some(result) = parser.parse_from_byte(received) {
-      match result {
-        Ok(nmea0183::ParseResult::GGA(msg)) => {
-          rprintln!("usart1: GGA {}", msg.is_some());
-          *cx.resources.gps = Option::from(msg)
-        },
-        Ok(nmea0183::ParseResult::GLL(msg)) => {
-          rprintln!("usart1: GLL {}", msg.is_some());
-        },
-        Ok(nmea0183::ParseResult::RMC(msg)) => {
-          rprintln!("usart1: RMC {}", msg.is_some());
-  
-        },
-        Ok(nmea0183::ParseResult::VTG(msg)) => {
-          rprintln!("usart1: VTG {}", msg.is_some());
+    let ereceived: Result<u8,serial::Error> = block!(cx.resources.serial.read());
+    match ereceived {
+      Result::Err(e) => {
+        rprintln!("usart1: error");
+        PARSER.replace(nmea0183::Parser::new());
+      },
+      Result::Ok(received) => {
+        if let Some(result) = parser.parse_from_byte(received) {
+          match result {
+            Ok(nmea0183::ParseResult::GGA(msg)) => {
+              rprintln!("usart1: GGA {}", msg.is_some());
+              *cx.resources.gps = Option::from(msg)
+            },
+            Ok(nmea0183::ParseResult::GLL(msg)) => {
+              rprintln!("usart1: GLL {}", msg.is_some());
+            },
+            Ok(nmea0183::ParseResult::RMC(msg)) => {
+              rprintln!("usart1: RMC {}", msg.is_some());
+      
+            },
+            Ok(nmea0183::ParseResult::VTG(msg)) => {
+              rprintln!("usart1: VTG {}", msg.is_some());
+            }
+            Err(_) => {},
+          }
         }
-        Err(_) => {},
-      }
+      },
     }
   }
 
   #[idle(resources=[gps,display])]
   fn idle(mut cx: idle::Context) -> ! {
-    let character_style = MonoTextStyle::new(&profont::PROFONT_18_POINT, Rgb565::WHITE);
+    let char_style = MonoTextStyle::new(&fonts::BIGNUMBER_FONT, Rgb565::WHITE);
     let text_style = TextStyle::with_baseline(Baseline::Top);
+    let fill_style = PrimitiveStyle::with_fill(Rgb565::BLACK);
     let mut nmissing:u32 = 0;
 
-    write_lcd_line(cx.resources.display, 0,"GPS");
+    Rectangle::new(Point::new(0,0), Size::new(480, 320))
+    .into_styled(fill_style)
+    .draw(cx.resources.display).unwrap();
+    
+    Text::with_text_style("123", Point::new(0,70), char_style, text_style)
+    .draw(cx.resources.display).unwrap();
 
     loop {
       //rprintln!("loop");
@@ -171,21 +189,21 @@ const APP: () = {
         if let Some(gga) = ogga {
           buf.clear();
           write!(&mut buf, "Sats: {}", gga.sat_in_use).unwrap();
-          write_lcd_line(cx.resources.display, 1, buf.as_str());
+          write_lcd_line(cx.resources.display, 0, buf.as_str());
 
           buf.clear();
           write!(&mut buf, "Lat: {}", gga.latitude.as_f64()).unwrap();
-          write_lcd_line(cx.resources.display, 2, buf.as_str());
+          write_lcd_line(cx.resources.display, 1, buf.as_str());
 
           buf.clear();
           write!(&mut buf, "Long: {}", gga.longitude.as_f64()).unwrap();
-          write_lcd_line(cx.resources.display, 3, buf.as_str());
+          write_lcd_line(cx.resources.display, 2, buf.as_str());
 
         } else {
           nmissing = nmissing + 1;
           buf.clear();
           write!(&mut buf, "Sats: 0 (nm: {})", nmissing).unwrap();
-          write_lcd_line(cx.resources.display, 1, buf.as_str())
+          write_lcd_line(cx.resources.display, 0, buf.as_str())
         }
       }
     }
@@ -206,7 +224,7 @@ fn write_lcd_line(display: &mut Display, line: i32, content: &str) {
   let char_style = MonoTextStyleBuilder::new()
     .font(&profont::PROFONT_18_POINT)
     .text_color(Rgb565::WHITE)
-    .background_color(Rgb565::RED)
+    .background_color(Rgb565::BLACK)
     .build();
   let text_style = TextStyle::with_baseline(Baseline::Top);
   let origin = Point::new(0,LINE_SIZE * line);
