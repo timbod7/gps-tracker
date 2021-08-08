@@ -1,0 +1,14 @@
+[default.probe]
+protocol = "Swd"
+
+[default.flashing]
+enabled = true
+halt_afterwards = false
+restore_unwritten_bytes = false
+
+[default.general]
+chip = "STM32F401CEUx"
+log_level = "Warn"
+
+[default.rtt]
+enabled = true
