@@ -33,11 +33,6 @@ const APP: () = {
     rprintln!("Starting init");
     rprintln!("Starting init2");
 
-    //cx.core.DCB.enable_trace();
-    // required on Cortex-M7 devices that software lock the DWT (e.g. STM32F7)
-    //cortex_m::peripheral::DWT::unlock();
-    //cx.core.DWT.enable_cycle_counter();
-
     rprintln!("Starting init2.5");
 
 
@@ -51,7 +46,14 @@ const APP: () = {
       .sysclk(32.mhz())
       .freeze();
 
-    // let mut afio = cx.device.AFIO.constrain();
+    // Enable debugging in sleep modes so that stlink stays alive during wfi etc._
+    // Remove this if/when power consumption is an issue.
+    cx.device.DBGMCU.cr.write( |w| w
+      .dbg_sleep().set_bit()
+      .dbg_stop().set_bit()
+      .dbg_standby().set_bit()
+    );
+
     rprintln!("Starting init3");
 
 
