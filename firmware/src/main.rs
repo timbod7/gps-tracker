@@ -2,7 +2,7 @@
 #![no_std]
 
 mod u8writer;
-mod fonts;
+mod layout;
 
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use rtt_target::{rtt_init_print, rprintln};
@@ -160,17 +160,12 @@ const APP: () = {
 
   #[idle(resources=[gps,display])]
   fn idle(mut cx: idle::Context) -> ! {
-    let char_style = MonoTextStyle::new(&fonts::BIGNUMBER_FONT, Rgb565::WHITE);
-    let text_style = TextStyle::with_baseline(Baseline::Top);
-    let fill_style = PrimitiveStyle::with_fill(Rgb565::BLACK);
+    let layout = layout::Layout::new();
+
     let mut nmissing:u32 = 0;
 
-    Rectangle::new(Point::new(0,0), Size::new(480, 320))
-    .into_styled(fill_style)
-    .draw(cx.resources.display).unwrap();
-    
-    Text::with_text_style("123", Point::new(0,70), char_style, text_style)
-    .draw(cx.resources.display).unwrap();
+    layout.clear(cx.resources.display).unwrap();
+    layout.write_big_text(cx.resources.display, Point::new(2,4), "12.3").unwrap();
 
     loop {
       //rprintln!("loop");
@@ -189,21 +184,19 @@ const APP: () = {
         if let Some(gga) = ogga {
           buf.clear();
           write!(&mut buf, "Sats: {}", gga.sat_in_use).unwrap();
-          write_lcd_line(cx.resources.display, 0, buf.as_str());
-
+          layout.write_field(cx.resources.display, Point::new(0,0), 12, buf.as_str()).unwrap();
           buf.clear();
           write!(&mut buf, "Lat: {}", gga.latitude.as_f64()).unwrap();
-          write_lcd_line(cx.resources.display, 1, buf.as_str());
+          layout.write_field(cx.resources.display, Point::new(0,1), 12, buf.as_str()).unwrap();
 
           buf.clear();
           write!(&mut buf, "Long: {}", gga.longitude.as_f64()).unwrap();
-          write_lcd_line(cx.resources.display, 2, buf.as_str());
-
+          layout.write_field(cx.resources.display, Point::new(0,2), 12, buf.as_str()).unwrap();
         } else {
           nmissing = nmissing + 1;
           buf.clear();
           write!(&mut buf, "Sats: 0 (nm: {})", nmissing).unwrap();
-          write_lcd_line(cx.resources.display, 0, buf.as_str())
+          layout.write_field(cx.resources.display, Point::new(0,0), 12, buf.as_str()).unwrap();
         }
       }
     }
@@ -218,16 +211,3 @@ const APP: () = {
   }
 };
 
-
-fn write_lcd_line(display: &mut Display, line: i32, content: &str) {
-  static LINE_SIZE: i32 = 22;
-  let char_style = MonoTextStyleBuilder::new()
-    .font(&profont::PROFONT_18_POINT)
-    .text_color(Rgb565::WHITE)
-    .background_color(Rgb565::BLACK)
-    .build();
-  let text_style = TextStyle::with_baseline(Baseline::Top);
-  let origin = Point::new(0,LINE_SIZE * line);
-  Text::with_text_style(content, origin, char_style, text_style)
-    .draw(display).unwrap();
-}
