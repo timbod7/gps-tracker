@@ -1,11 +1,10 @@
-use embedded_graphics::primitives::Rectangle;
-use crate::PrimitiveStyle;
 use embedded_graphics::{
   image::ImageRaw,
   mono_font::{mapping::StrGlyphMapping, DecorationDimensions, MonoFont, MonoTextStyle,MonoTextStyleBuilder},
   pixelcolor::Rgb565,
   prelude::*,
   text::{Baseline, Text, TextStyle},
+  primitives::{Rectangle, PrimitiveStyle},
 };
 
 const BIGNUMBER_FONT: MonoFont = MonoFont {

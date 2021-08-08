@@ -3,8 +3,8 @@
 
 mod u8writer;
 mod layout;
+mod gps;
 
-use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use rtt_target::{rtt_init_print, rprintln};
 
 // set the panic handler
@@ -17,16 +17,12 @@ use rtic::app;
 
 use ili9341::{Ili9341, Orientation};
 use embedded_graphics::{
-  mono_font::MonoTextStyle,
-  pixelcolor::Rgb565,
   prelude::*,
-  text::{Baseline, Text, TextStyle},
-  primitives::{
-    Rectangle, PrimitiveStyle
-},
+
 };
 use display_interface_spi::SPIInterface;
 use u8writer::U8Writer;
+use gps::Gps;
 use core::fmt::{Write};
 
 
@@ -38,17 +34,13 @@ const APP: () = {
   struct Resources {
     display: Display,
     serial: Serial,
-    gps: Option<Option<nmea0183::GGA>>
+    gps: Gps,
   }
 
   #[init(schedule = [])]
   fn init(cx: init::Context) -> init::LateResources {
     rtt_init_print!();
     rprintln!("Starting init");
-    rprintln!("Starting init2");
-
-    rprintln!("Starting init2.5");
-
 
     // Take ownership over the raw flash and rcc devices and convert them into the corresponding
     // HAL structs
@@ -67,8 +59,6 @@ const APP: () = {
       .dbg_stop().set_bit()
       .dbg_standby().set_bit()
     );
-
-    rprintln!("Starting init3");
 
 
     // configure the gpio ports
@@ -97,8 +87,6 @@ const APP: () = {
       ili9341::DisplaySize320x480,
       ).unwrap();
 
-    rprintln!("Starting init4");
-
     // Configure the serial port for GPS data
     let tx = gpioa.pa9.into_alternate_af7();
     let rx = gpioa.pa10.into_alternate_af7();
@@ -114,46 +102,20 @@ const APP: () = {
     init::LateResources {
       display,
       serial,
-      gps: Option::None,
+      gps: Gps::new(),
     }
   }
 
   #[task(binds = USART1, resources=[serial, gps])]
   fn usart1(cx: usart1::Context) {
-    static mut PARSER: Option<nmea0183::Parser> = None;
-
-    let parser = PARSER.get_or_insert_with(|| {
-      nmea0183::Parser::new()
-    });
-
-    // *parser.clear();
-
     let ereceived: Result<u8,serial::Error> = block!(cx.resources.serial.read());
     match ereceived {
-      Result::Err(e) => {
+      Result::Err(_e) => {
         rprintln!("usart1: error");
-        PARSER.replace(nmea0183::Parser::new());
+        cx.resources.gps.parse_clear();
       },
       Result::Ok(received) => {
-        if let Some(result) = parser.parse_from_byte(received) {
-          match result {
-            Ok(nmea0183::ParseResult::GGA(msg)) => {
-              rprintln!("usart1: GGA {}", msg.is_some());
-              *cx.resources.gps = Option::from(msg)
-            },
-            Ok(nmea0183::ParseResult::GLL(msg)) => {
-              rprintln!("usart1: GLL {}", msg.is_some());
-            },
-            Ok(nmea0183::ParseResult::RMC(msg)) => {
-              rprintln!("usart1: RMC {}", msg.is_some());
-      
-            },
-            Ok(nmea0183::ParseResult::VTG(msg)) => {
-              rprintln!("usart1: VTG {}", msg.is_some());
-            }
-            Err(_) => {},
-          }
-        }
+        cx.resources.gps.parse_u8(received);
       },
     }
   }
@@ -161,25 +123,23 @@ const APP: () = {
   #[idle(resources=[gps,display])]
   fn idle(mut cx: idle::Context) -> ! {
     let layout = layout::Layout::new();
+    let mut buf = [0u8; 20];
+    let mut buf = U8Writer::new(&mut buf[..]);
 
     let mut nmissing:u32 = 0;
 
     layout.clear(cx.resources.display).unwrap();
-    layout.write_big_text(cx.resources.display, Point::new(2,4), "12.3").unwrap();
+    layout.write_big_text(cx.resources.display, Point::new(2,4), "....").unwrap();
 
     loop {
-      //rprintln!("loop");
-
-      // Fetch the updated GPS value, if there is one
+      // Fetch the updated GGA and VTG values, if present
       let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
+      let mut ovtg: Option<nmea0183::VTG> = Option::None;
       cx.resources.gps.lock( |gps| {
-        oogga = gps.take();        
+        oogga = gps.take_gga();
+        ovtg = gps.take_vtg();        
       });
 
-      let mut buf = [0u8; 20];
-      let mut buf = U8Writer::new(&mut buf[..]);
-
-      // And show it
       if let Some(ogga) = oogga {
         if let Some(gga) = ogga {
           buf.clear();
@@ -198,6 +158,13 @@ const APP: () = {
           write!(&mut buf, "Sats: 0 (nm: {})", nmissing).unwrap();
           layout.write_field(cx.resources.display, Point::new(0,0), 12, buf.as_str()).unwrap();
         }
+      }
+
+      if let Some(vtg) = ovtg {
+        let knots = vtg.speed.as_kph() / 0.539957f32;
+        buf.clear();
+        write!(&mut buf, "{:4.1}", knots).unwrap();
+        layout.write_big_text(cx.resources.display, Point::new(2,4), buf.as_str()).unwrap();
       }
     }
   }
