@@ -19,3 +19,4 @@ display-interface-spi = "0.4.1"
 stm32f4xx-hal = { version = "0.9.0", features = ["rt", "stm32f401"] }
 nb = "1.0.0"
 nmea0183 = "0.2.3"
+micromath = "2.0.0"

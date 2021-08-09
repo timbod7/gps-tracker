@@ -129,8 +129,8 @@ const APP: () = {
     let mut nmissing:u32 = 0;
 
     layout.clear(cx.resources.display).unwrap();
-    layout.write_big_text(cx.resources.display, Point::new(2,4), "....").unwrap();
-
+    layout.write_speed(cx.resources.display, 0.0);
+    layout.write_field(cx.resources.display, Point::new(21,4), 12, "kt").unwrap();
     loop {
       // Fetch the updated GGA and VTG values, if present
       let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
@@ -161,13 +161,12 @@ const APP: () = {
       }
 
       if let Some(vtg) = ovtg {
-        let knots = vtg.speed.as_kph() / 0.539957f32;
-        buf.clear();
-        write!(&mut buf, "{:4.1}", knots).unwrap();
-        layout.write_big_text(cx.resources.display, Point::new(2,4), buf.as_str()).unwrap();
+        let knots = vtg.speed.as_kph() * 0.539957f32;
+        layout.write_speed(cx.resources.display, knots);
       }
     }
   }
+
 
 
   // RTIC requires that unused interrupts are declared in an extern block when
