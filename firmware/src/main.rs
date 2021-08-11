@@ -129,7 +129,7 @@ const APP: () = {
     let mut nmissing:u32 = 0;
 
     layout.clear(cx.resources.display).unwrap();
-    layout.write_speed(cx.resources.display, 0.0);
+    layout.write_speed(cx.resources.display, 0.0).unwrap();
     layout.write_field(cx.resources.display, Point::new(21,4), 12, "kt").unwrap();
     loop {
       // Fetch the updated GGA and VTG values, if present
@@ -143,14 +143,13 @@ const APP: () = {
       if let Some(ogga) = oogga {
         if let Some(gga) = ogga {
           buf.clear();
-          write!(&mut buf, "Sats: {}", gga.sat_in_use).unwrap();
+          write!(&mut buf, "Sats: {}  HDOP: {:.1}", gga.sat_in_use, gga.hdop).unwrap();
           layout.write_field(cx.resources.display, Point::new(0,0), 12, buf.as_str()).unwrap();
           buf.clear();
-          write!(&mut buf, "Lat: {}", gga.latitude.as_f64()).unwrap();
+          write!(&mut buf, "Lat: {:.6}", gga.latitude.as_f64()).unwrap();
           layout.write_field(cx.resources.display, Point::new(0,1), 12, buf.as_str()).unwrap();
-
           buf.clear();
-          write!(&mut buf, "Long: {}", gga.longitude.as_f64()).unwrap();
+          write!(&mut buf, "Long: {:.6}", gga.longitude.as_f64()).unwrap();
           layout.write_field(cx.resources.display, Point::new(0,2), 12, buf.as_str()).unwrap();
         } else {
           nmissing = nmissing + 1;
@@ -161,8 +160,7 @@ const APP: () = {
       }
 
       if let Some(vtg) = ovtg {
-        let knots = vtg.speed.as_kph() * 0.539957f32;
-        layout.write_speed(cx.resources.display, knots);
+        layout.write_speed(cx.resources.display,  vtg.speed.as_knots()).unwrap();
       }
     }
   }
