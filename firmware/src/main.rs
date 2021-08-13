@@ -24,6 +24,7 @@ use display_interface_spi::SPIInterface;
 use u8writer::U8Writer;
 use gps::Gps;
 use core::fmt::{Write};
+use micromath::F32Ext;
 
 
 type Display = ili9341::Ili9341<display_interface_spi::SPIInterface<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::stm32::SPI1, (stm32f4xx_hal::gpio::gpioa::PA5<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA6<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA7<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>)>, stm32f4xx_hal::gpio::gpioa::PA3<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>, stm32f4xx_hal::gpio::gpioa::PA2<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>, stm32f4xx_hal::gpio::gpioa::PA4<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>;
@@ -125,12 +126,14 @@ const APP: () = {
     let layout = layout::Layout::new();
     let mut buf = [0u8; 20];
     let mut buf = U8Writer::new(&mut buf[..]);
-
+    let mut speed_field : layout::DisplayField<3> = layout::DisplayField::new();
+    write_field!(speed_field, "000");
     let mut nmissing:u32 = 0;
 
     layout.clear(cx.resources.display).unwrap();
-    layout.write_speed(cx.resources.display, 0.0).unwrap();
+    layout.write_speed(cx.resources.display, &mut speed_field).unwrap();
     layout.write_field(cx.resources.display, Point::new(21,4), 12, "kt").unwrap();
+
     loop {
       // Fetch the updated GGA and VTG values, if present
       let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
@@ -160,7 +163,8 @@ const APP: () = {
       }
 
       if let Some(vtg) = ovtg {
-        layout.write_speed(cx.resources.display,  vtg.speed.as_knots()).unwrap();
+        write_field!(speed_field, "{:3}", (vtg.speed.as_knots() * 1.0).round() as u32);
+        layout.write_speed(cx.resources.display, &mut speed_field).unwrap();
       }
     }
   }

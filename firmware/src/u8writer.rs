@@ -1,5 +1,6 @@
 use core::fmt::{self};
 use core::str;
+use core::fmt::Write;
 
 
 pub struct U8Writer<'a> {
@@ -10,6 +11,12 @@ pub struct U8Writer<'a> {
 impl<'a> U8Writer<'a> {
     pub fn new(buf: &'a mut [u8]) -> Self {
         U8Writer { buf, cursor: 0 }
+    }
+
+    pub fn fill(&mut self, v: u8) {
+      for i in self.cursor..self.buf.len() {
+        self.buf[i] = v;
+      }
     }
 
     pub fn as_str(&self) -> &str {
@@ -51,3 +58,4 @@ impl fmt::Write for U8Writer<'_> {
         Ok(())
     }
 }
+

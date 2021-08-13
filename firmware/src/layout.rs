@@ -9,6 +9,7 @@ use embedded_graphics::{
   primitives::{Rectangle, PrimitiveStyle},
 };
 use core::fmt::{Write};
+use core::str;
 use micromath::F32Ext;
 
 
@@ -32,6 +33,7 @@ pub struct Layout {
 
 const CHAR_WIDTH: i32 = 12;
 const CHAR_HEIGHT: i32 = 22;
+const BIG_CHAR_WIDTH: i32 = 60;
 
 impl Layout {
   pub fn new() -> Layout {
@@ -100,23 +102,30 @@ impl Layout {
     Result::Ok(())
   }
 
-  pub fn write_speed<D>(&self, display: &mut D, speed: f32)-> Result<(), D::Error>
+  pub fn write_speed<D>(&self, display: &mut D, speed: &mut DisplayField<3>)-> Result<(), D::Error>
   where
     D: DrawTarget<Color = Rgb565>
   {
-    let mut buf = [0u8; 20];
-    let mut buf = U8Writer::new(&mut buf[..]);
-
     let mut cursor =  Layout::char_point(Point::new(4,4));
+    let nextc = Point::new(BIG_CHAR_WIDTH, 0);
 
-    buf.clear();
-    write!(&mut buf, "{:2}", speed.trunc() ).unwrap();
-    cursor = self.write_big_text(display, cursor, buf.as_str())?;
+    if let Some(c) = speed.getdirtychar(0) {
+      cursor = self.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
+    if let Some(c) = speed.getdirtychar(1) {
+      cursor = self.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
     cursor = self.write_big_dp(display, cursor)?;
-    buf.clear();
-    write!(&mut buf, "{:1}", (speed.fract() * 10.0).round()).unwrap();
-    let _ = self.write_big_text(display, cursor, buf.as_str())?;
-
+    if let Some(c) = speed.getdirtychar(2) {
+      cursor = self.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
+    speed.clear_dirty();
     Result::Ok(())
   }
 
@@ -127,3 +136,65 @@ impl Layout {
     }
   }
 }
+
+
+/// A fixed width text display field that keeps track of which
+/// characters have been updated, for efficient updates.
+pub struct DisplayField<const W: usize> {
+  buf: [u8; W],
+  dirty: [bool; W],    // TODO: implement as a bitmap
+}
+
+impl<const W: usize> DisplayField<W> {
+  pub fn new()-> Self {
+    DisplayField {
+      buf: [0; W],
+      dirty: [false; W],
+    }
+  }
+
+  pub fn tmpbuf(&self) -> [u8; W] {
+    [0; W]
+  }
+
+  pub fn getdirtychar(&self, i: usize) -> Option<&str> {
+    if self.dirty[i] {
+      Option::Some(str::from_utf8(&self.buf[i..i+1]).unwrap())
+    } else {
+      Option::None
+    }
+  }
+
+  pub fn update_from(&mut self, buf: &[u8; W]) {
+    for i in 0..self.buf.len() {
+      if self.buf[i] != buf[i] {
+        self.buf[i] = buf[i];
+        self.dirty[i] = true;
+      }
+    }
+  }
+
+  pub fn clear_dirty(&mut self) {
+    self.dirty = [false; W];
+  }
+}
+
+#[macro_export]
+macro_rules! write_field {
+  ($displayfield:expr, $($arg:tt)*) => {
+    {
+      let mut buf = $displayfield.tmpbuf();
+      let mut u8w = U8Writer::new(&mut buf);
+      let r = u8w.write_fmt(core::format_args!($($arg)*));
+      u8w.fill(' ' as u8);
+      $displayfield.update_from(&buf);
+      r
+    }
+  }
+}
+
+
+// pub fn test() {
+//   let mut field: DisplayField<6> = DisplayField::new();
+//  write_field!(field, "Long: {:.6}", "14.22").unwrap();
+// }
