@@ -17,9 +17,9 @@ use crate::write_field;
 
 
 const BIGNUMBER_FONT: MonoFont = MonoFont {
-  image: ImageRaw::new_binary(include_bytes!("assets/bignumbers.raw"), 660),
-  glyph_mapping: &StrGlyphMapping::new("0123456789.", 0),
-  character_size: Size::new(60, 80),
+  image: ImageRaw::new_binary(include_bytes!("assets/bignumbers.raw"), 800),
+  glyph_mapping: &StrGlyphMapping::new("0123456789", 0),
+  character_size: Size::new(80, 104),
   character_spacing: 0,
   baseline: 7,
   underline: DecorationDimensions::default_underline(40),
@@ -36,7 +36,7 @@ pub struct Layout {
 
 pub const CHAR_WIDTH: i32 = 12;
 pub const CHAR_HEIGHT: i32 = 22;
-pub const BIG_CHAR_WIDTH: i32 = 60;
+pub const BIG_CHAR_WIDTH: i32 = 80;
 
 impl Layout {
   pub fn new() -> Layout {
@@ -92,9 +92,9 @@ impl Layout {
   where
     D: DrawTarget<Color = Rgb565>
   {
-    let diam = 13;
+    let diam = 16;
     let kern = 2;
-    let topleft = loc + Point::new(kern, 80-diam-4);
+    let topleft = loc + Point::new(kern, 104-diam-4);
     Circle::new(topleft, diam as u32)
       .into_styled(self.fg_fill_style)
       .draw(display)?;
@@ -153,7 +153,7 @@ impl Screen1 {
   {
     write_field!(self.speed_field, "000").unwrap();
     self.layout.clear(display)?;
-    self.layout.write_text(display, self.layout.char_point(21, 4), "kt")?;
+    self.layout.write_text(display, self.layout.char_point(23, 4), "kt")?;
     Result::Ok(())
   }
 
@@ -179,7 +179,7 @@ impl Screen1 {
   where
     D: DrawTarget<Color = Rgb565>
   {
-    let mut cursor =  self.layout.char_point(4, 4);
+    let mut cursor =  self.layout.char_point(1, 4);
     let nextc = Point::new(BIG_CHAR_WIDTH, 0);
 
     if let Some(c) = self.speed_field.getdirtychar(0) {
