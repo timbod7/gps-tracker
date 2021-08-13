@@ -1,3 +1,4 @@
+use nmea0183::VTG;
 use embedded_graphics::primitives::Circle;
 use crate::U8Writer;
 use embedded_graphics::{
@@ -11,6 +12,8 @@ use embedded_graphics::{
 use core::fmt::{Write};
 use core::str;
 use micromath::F32Ext;
+use nmea0183::GGA;
+use crate::write_field;
 
 
 const BIGNUMBER_FONT: MonoFont = MonoFont {
@@ -106,41 +109,13 @@ impl Layout {
     let left = Point::new(CHAR_WIDTH, 0);
     for i in 0..field.buf.len() {
       if let Some(c) = field.getdirtychar(i) {
-        Text::with_text_style(c, cursor, self.char_style, self.text_style)
-        .draw(display)?;
+        self.write_text(display, cursor, c)?;
       }
       cursor = cursor + left;
 
     }
     field.clear_dirty();
     Result::Ok(cursor)
-  }
-
-  pub fn write_speed<D>(&self, display: &mut D, speed: &mut DisplayField<3>)-> Result<(), D::Error>
-  where
-    D: DrawTarget<Color = Rgb565>
-  {
-    let mut cursor =  self.char_point(4, 4);
-    let nextc = Point::new(BIG_CHAR_WIDTH, 0);
-
-    if let Some(c) = speed.getdirtychar(0) {
-      cursor = self.write_big_text(display, cursor, c)?
-    } else {
-      cursor = cursor + nextc;
-    }
-    if let Some(c) = speed.getdirtychar(1) {
-      cursor = self.write_big_text(display, cursor, c)?
-    } else {
-      cursor = cursor + nextc;
-    }
-    cursor = self.write_big_dp(display, cursor)?;
-    if let Some(c) = speed.getdirtychar(2) {
-      cursor = self.write_big_text(display, cursor, c)?
-    } else {
-      cursor = cursor + nextc;
-    }
-    speed.clear_dirty();
-    Result::Ok(())
   }
 
   pub fn char_point(&self, x: i32, y: i32) -> Point {
@@ -151,12 +126,108 @@ impl Layout {
   }
 }
 
+pub struct Screen1 {
+  layout: Layout,
+  speed_field : DisplayField<3>,  
+  sats_field  : DisplayField<8>,  
+  lat_field   : DisplayField<18>,  
+  lng_field   : DisplayField<18>,  
+}
+
+impl Screen1 {
+  pub fn new() -> Self {
+    Screen1 {
+      layout : Layout:: new(),
+      speed_field: DisplayField::new(),
+      sats_field: DisplayField::new(),
+      lat_field: DisplayField::new(),
+      lng_field: DisplayField::new(),
+    }
+  }
+
+  pub fn render_initial<D>(&mut self,  display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = Rgb565>
+  {
+    write_field!(self.speed_field, "000");
+    self.layout.clear(display)?;
+    self.layout.write_text(display, self.layout.char_point(21, 4), "kt")?;
+    Result::Ok(())
+  }
+
+
+  pub fn render_update<D>(&mut self,  display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = Rgb565>
+  {
+    let mut cursor = Point::new(0,0);
+    let down = Point::new(0,CHAR_HEIGHT);
+    self.layout.render_field(display, cursor, &mut self.sats_field)?;
+    cursor = cursor + down;
+    self.layout.render_field(display, cursor, &mut self.lat_field)?;
+    cursor = cursor + down;
+    self.layout.render_field(display, cursor, &mut self.lng_field)?;
+
+    self.render_speed(display)?;
+
+    Result::Ok(())
+  }
+
+  fn render_speed<D>(&mut self, display: &mut D)-> Result<(), D::Error>
+  where
+    D: DrawTarget<Color = Rgb565>
+  {
+    let mut cursor =  self.layout.char_point(4, 4);
+    let nextc = Point::new(BIG_CHAR_WIDTH, 0);
+
+    if let Some(c) = self.speed_field.getdirtychar(0) {
+      cursor = self.layout.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
+    if let Some(c) = self.speed_field.getdirtychar(1) {
+      cursor = self.layout.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
+    cursor = self.layout.write_big_dp(display, cursor)?;
+    if let Some(c) = self.speed_field.getdirtychar(2) {
+      cursor = self.layout.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
+    self.speed_field.clear_dirty();
+    Result::Ok(())
+  }
+
+
+  pub fn update_gga(&mut self, ogga: Option<GGA>) {
+    match ogga {
+      Option::None => {
+        write_field!(self.sats_field, "Sats: 0");
+        self.lat_field.clear();
+        self.lng_field.clear();
+      },
+      Option::Some(gga) => {
+        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use);
+        write_field!(self.lat_field, "Lat: {:12.6}", gga.latitude.as_f64()).unwrap();
+        write_field!(self.lng_field, "Lng: {:12.6}", gga.longitude.as_f64()).unwrap();
+      }
+    }
+  }
+
+  pub fn update_vtg(&mut self, vtg: VTG) {
+    write_field!(self.speed_field, "{:3}", (vtg.speed.as_knots() * 10.0).round() as u32);
+  }
+}
+
+
 
 /// A fixed width text display field that keeps track of which
 /// characters have been updated, for efficient updates.
 pub struct DisplayField<const W: usize> {
-  pub buf: [u8; W],
-  pub dirty: [bool; W],    // TODO: implement as a bitmap
+  buf: [u8; W],
+  dirty: [bool; W],    // TODO: implement as a bitmap
 }
 
 impl<const W: usize> DisplayField<W> {
@@ -210,9 +281,3 @@ macro_rules! write_field {
     }
   }
 }
-
-
-// pub fn test() {
-//   let mut field: DisplayField<6> = DisplayField::new();
-//  write_field!(field, "Long: {:.6}", "14.22").unwrap();
-// }

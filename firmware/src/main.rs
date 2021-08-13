@@ -16,16 +16,10 @@ use nb::block;
 use rtic::app;
 
 use ili9341::{Ili9341, Orientation};
-use embedded_graphics::{
-  prelude::*,
 
-};
 use display_interface_spi::SPIInterface;
 use u8writer::U8Writer;
 use gps::Gps;
-use core::fmt::{Write};
-use micromath::F32Ext;
-
 
 type Display = ili9341::Ili9341<display_interface_spi::SPIInterface<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::stm32::SPI1, (stm32f4xx_hal::gpio::gpioa::PA5<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA6<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA7<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>)>, stm32f4xx_hal::gpio::gpioa::PA3<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>, stm32f4xx_hal::gpio::gpioa::PA2<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>, stm32f4xx_hal::gpio::gpioa::PA4<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>;
 type Serial = stm32f4xx_hal::serial::Serial<stm32f4xx_hal::stm32::USART1, (stm32f4xx_hal::gpio::gpioa::PA9<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>, stm32f4xx_hal::gpio::gpioa::PA10<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>)>;
@@ -123,56 +117,33 @@ const APP: () = {
 
   #[idle(resources=[gps,display])]
   fn idle(mut cx: idle::Context) -> ! {
-    let layout = layout::Layout::new();
-    let mut speed_field : layout::DisplayField<3> = layout::DisplayField::new();
-    let mut sats_field  : layout::DisplayField<8> = layout::DisplayField::new();
-    let mut lat_field   : layout::DisplayField<18> = layout::DisplayField::new();
-    let mut lng_field   : layout::DisplayField<18> = layout::DisplayField::new();
+    let mut screen = layout::Screen1::new();
 
-
-    write_field!(speed_field, "000");
-
-    layout.clear(cx.resources.display).unwrap();
-    layout.write_speed(cx.resources.display, &mut speed_field).unwrap();
-    layout.write_text(cx.resources.display, layout.char_point(21, 4), "kt").unwrap();
+    screen.render_initial(cx.resources.display);
 
     loop {
       // Fetch the updated GGA and VTG values, if present
       let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
       let mut ovtg: Option<nmea0183::VTG> = Option::None;
+      
       cx.resources.gps.lock( |gps| {
         oogga = gps.take_gga();
         ovtg = gps.take_vtg();        
       });
 
+      let mut updated = false;
       if let Some(ogga) = oogga {
-
-        match ogga {
-          Option::None => {
-            write_field!(sats_field, "Sats: 0");
-            lat_field.clear();
-            lng_field.clear();
-          },
-          Option::Some(gga) => {
-            write_field!(sats_field, "Sats: {:2}", gga.sat_in_use);
-            write_field!(lat_field, "Lat: {:12.6}", gga.latitude.as_f64()).unwrap();
-            write_field!(lng_field, "Lng: {:12.6}", gga.longitude.as_f64()).unwrap();
-          }
-        }
-
-        let mut cursor = Point::new(0,0);
-        let down = Point::new(0,layout::CHAR_HEIGHT);
-        layout.render_field(cx.resources.display, cursor, &mut sats_field).unwrap();
-        cursor = cursor + down;
-        layout.render_field(cx.resources.display, cursor, &mut lat_field).unwrap();
-        cursor = cursor + down;
-        layout.render_field(cx.resources.display, cursor, &mut lng_field).unwrap();
-
+        screen.update_gga(ogga);
+        updated = true;
       }
 
       if let Some(vtg) = ovtg {
-        write_field!(speed_field, "{:3}", (vtg.speed.as_knots() * 1.0).round() as u32);
-        layout.write_speed(cx.resources.display, &mut speed_field).unwrap();
+        screen.update_vtg(vtg);
+        updated = true;
+      }
+
+      if updated {
+        screen.render_update(cx.resources.display).unwrap();
       }
     }
   }
