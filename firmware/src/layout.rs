@@ -149,7 +149,7 @@ impl Screen1 {
   where
   D: DrawTarget<Color = Rgb565>
   {
-    write_field!(self.speed_field, "000");
+    write_field!(self.speed_field, "000").unwrap();
     self.layout.clear(display)?;
     self.layout.write_text(display, self.layout.char_point(21, 4), "kt")?;
     Result::Ok(())
@@ -192,9 +192,7 @@ impl Screen1 {
     }
     cursor = self.layout.write_big_dp(display, cursor)?;
     if let Some(c) = self.speed_field.getdirtychar(2) {
-      cursor = self.layout.write_big_text(display, cursor, c)?
-    } else {
-      cursor = cursor + nextc;
+      self.layout.write_big_text(display, cursor, c)?;
     }
     self.speed_field.clear_dirty();
     Result::Ok(())
@@ -204,12 +202,12 @@ impl Screen1 {
   pub fn update_gga(&mut self, ogga: Option<GGA>) {
     match ogga {
       Option::None => {
-        write_field!(self.sats_field, "Sats: 0");
+        write_field!(self.sats_field, "Sats: 0").unwrap();
         self.lat_field.clear();
         self.lng_field.clear();
       },
       Option::Some(gga) => {
-        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use);
+        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use).unwrap();
         write_field!(self.lat_field, "Lat: {:12.6}", gga.latitude.as_f64()).unwrap();
         write_field!(self.lng_field, "Lng: {:12.6}", gga.longitude.as_f64()).unwrap();
       }
@@ -217,7 +215,7 @@ impl Screen1 {
   }
 
   pub fn update_vtg(&mut self, vtg: VTG) {
-    write_field!(self.speed_field, "{:3}", (vtg.speed.as_knots() * 10.0).round() as u32);
+    write_field!(self.speed_field, "{:3}", (vtg.speed.as_knots() * 10.0).round() as u32).unwrap();
   }
 }
 

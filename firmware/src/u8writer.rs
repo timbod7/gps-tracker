@@ -1,6 +1,7 @@
+#[allow(dead_code)]
+
 use core::fmt::{self};
 use core::str;
-use core::fmt::Write;
 
 
 pub struct U8Writer<'a> {

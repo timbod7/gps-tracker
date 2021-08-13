@@ -1,5 +1,6 @@
 #![no_main]
 #![no_std]
+#[allow(dead_code)]
 
 mod u8writer;
 mod layout;
@@ -119,7 +120,7 @@ const APP: () = {
   fn idle(mut cx: idle::Context) -> ! {
     let mut screen = layout::Screen1::new();
 
-    screen.render_initial(cx.resources.display);
+    screen.render_initial(cx.resources.display).unwrap();
 
     loop {
       // Fetch the updated GGA and VTG values, if present
