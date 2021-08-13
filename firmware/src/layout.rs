@@ -223,8 +223,8 @@ impl Screen1 {
     }
   }
 
-  pub fn update_vtg(&mut self, _vtg: VTG, avg_speed: Speed) {
-    write_field!(self.speed_field, "{:3}", (avg_speed.as_knots() * 10.0).round() as u32).unwrap();
+  pub fn update_vtg(&mut self, vtg: VTG, _avg_speed: Speed) {
+    write_field!(self.speed_field, "{:3}", (vtg.speed.as_knots() * 10.0).round() as u32).unwrap();
   }
 }
 
