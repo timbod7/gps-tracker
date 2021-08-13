@@ -124,15 +124,17 @@ const APP: () = {
   #[idle(resources=[gps,display])]
   fn idle(mut cx: idle::Context) -> ! {
     let layout = layout::Layout::new();
-    let mut buf = [0u8; 20];
-    let mut buf = U8Writer::new(&mut buf[..]);
     let mut speed_field : layout::DisplayField<3> = layout::DisplayField::new();
+    let mut sats_field  : layout::DisplayField<8> = layout::DisplayField::new();
+    let mut lat_field   : layout::DisplayField<18> = layout::DisplayField::new();
+    let mut lng_field   : layout::DisplayField<18> = layout::DisplayField::new();
+
+
     write_field!(speed_field, "000");
-    let mut nmissing:u32 = 0;
 
     layout.clear(cx.resources.display).unwrap();
     layout.write_speed(cx.resources.display, &mut speed_field).unwrap();
-    layout.write_field(cx.resources.display, Point::new(21,4), 12, "kt").unwrap();
+    layout.write_text(cx.resources.display, layout.char_point(21, 4), "kt").unwrap();
 
     loop {
       // Fetch the updated GGA and VTG values, if present
@@ -144,22 +146,28 @@ const APP: () = {
       });
 
       if let Some(ogga) = oogga {
-        if let Some(gga) = ogga {
-          buf.clear();
-          write!(&mut buf, "Sats: {}  HDOP: {:.1}", gga.sat_in_use, gga.hdop).unwrap();
-          layout.write_field(cx.resources.display, Point::new(0,0), 12, buf.as_str()).unwrap();
-          buf.clear();
-          write!(&mut buf, "Lat: {:.6}", gga.latitude.as_f64()).unwrap();
-          layout.write_field(cx.resources.display, Point::new(0,1), 12, buf.as_str()).unwrap();
-          buf.clear();
-          write!(&mut buf, "Long: {:.6}", gga.longitude.as_f64()).unwrap();
-          layout.write_field(cx.resources.display, Point::new(0,2), 12, buf.as_str()).unwrap();
-        } else {
-          nmissing = nmissing + 1;
-          buf.clear();
-          write!(&mut buf, "Sats: 0 (nm: {})", nmissing).unwrap();
-          layout.write_field(cx.resources.display, Point::new(0,0), 12, buf.as_str()).unwrap();
+
+        match ogga {
+          Option::None => {
+            write_field!(sats_field, "Sats: 0");
+            lat_field.clear();
+            lng_field.clear();
+          },
+          Option::Some(gga) => {
+            write_field!(sats_field, "Sats: {:2}", gga.sat_in_use);
+            write_field!(lat_field, "Lat: {:12.6}", gga.latitude.as_f64()).unwrap();
+            write_field!(lng_field, "Lng: {:12.6}", gga.longitude.as_f64()).unwrap();
+          }
         }
+
+        let mut cursor = Point::new(0,0);
+        let down = Point::new(0,layout::CHAR_HEIGHT);
+        layout.render_field(cx.resources.display, cursor, &mut sats_field).unwrap();
+        cursor = cursor + down;
+        layout.render_field(cx.resources.display, cursor, &mut lat_field).unwrap();
+        cursor = cursor + down;
+        layout.render_field(cx.resources.display, cursor, &mut lng_field).unwrap();
+
       }
 
       if let Some(vtg) = ovtg {

@@ -31,9 +31,9 @@ pub struct Layout {
   fg_fill_style: PrimitiveStyle<Rgb565>,
 }
 
-const CHAR_WIDTH: i32 = 12;
-const CHAR_HEIGHT: i32 = 22;
-const BIG_CHAR_WIDTH: i32 = 60;
+pub const CHAR_WIDTH: i32 = 12;
+pub const CHAR_HEIGHT: i32 = 22;
+pub const BIG_CHAR_WIDTH: i32 = 60;
 
 impl Layout {
   pub fn new() -> Layout {
@@ -69,6 +69,14 @@ impl Layout {
     Result::Ok(())
   }
 
+  pub fn write_text<D>(&self, display: &mut D, loc: Point, content: &str) -> Result<Point, D::Error>
+  where
+    D: DrawTarget<Color = Rgb565>
+  {
+    Text::with_text_style(content, loc, self.char_style, self.text_style)
+      .draw(display)
+  }
+
   pub fn write_big_text<D>(&self, display: &mut D, loc: Point, content: &str) -> Result<Point, D::Error>
   where
     D: DrawTarget<Color = Rgb565>
@@ -90,23 +98,29 @@ impl Layout {
     Result::Ok(loc + Point::new(kern * 2 + diam, 0))
   }
 
-  pub fn write_field<D>(&self, display: &mut D, cloc: Point, width: i32, content: &str) -> Result<(), D::Error>
+  pub fn render_field<D, const N:usize>(&self, display: &mut D, cursor0: Point, field: &mut DisplayField<N>) -> Result<Point, D::Error>
   where
     D: DrawTarget<Color = Rgb565>
   {
-    let loc  = Layout::char_point(cloc);
-    let _ = Text::with_text_style(content, loc, self.char_style, self.text_style)
-      .draw(display)?;
+    let mut cursor = cursor0;
+    let left = Point::new(CHAR_WIDTH, 0);
+    for i in 0..field.buf.len() {
+      if let Some(c) = field.getdirtychar(i) {
+        Text::with_text_style(c, cursor, self.char_style, self.text_style)
+        .draw(display)?;
+      }
+      cursor = cursor + left;
 
-    // TODO FILL EXTRA BACKGROUND
-    Result::Ok(())
+    }
+    field.clear_dirty();
+    Result::Ok(cursor)
   }
 
   pub fn write_speed<D>(&self, display: &mut D, speed: &mut DisplayField<3>)-> Result<(), D::Error>
   where
     D: DrawTarget<Color = Rgb565>
   {
-    let mut cursor =  Layout::char_point(Point::new(4,4));
+    let mut cursor =  self.char_point(4, 4);
     let nextc = Point::new(BIG_CHAR_WIDTH, 0);
 
     if let Some(c) = speed.getdirtychar(0) {
@@ -129,10 +143,10 @@ impl Layout {
     Result::Ok(())
   }
 
-  fn char_point(loc:Point) -> Point {
+  pub fn char_point(&self, x: i32, y: i32) -> Point {
     Point{
-      x: 4 + loc.x * CHAR_WIDTH, 
-      y: 10 + loc.y * CHAR_HEIGHT
+      x: 4 + x * CHAR_WIDTH, 
+      y: 10 + y * CHAR_HEIGHT
     }
   }
 }
@@ -141,15 +155,15 @@ impl Layout {
 /// A fixed width text display field that keeps track of which
 /// characters have been updated, for efficient updates.
 pub struct DisplayField<const W: usize> {
-  buf: [u8; W],
-  dirty: [bool; W],    // TODO: implement as a bitmap
+  pub buf: [u8; W],
+  pub dirty: [bool; W],    // TODO: implement as a bitmap
 }
 
 impl<const W: usize> DisplayField<W> {
   pub fn new()-> Self {
     DisplayField {
-      buf: [0; W],
-      dirty: [false; W],
+      buf: [' ' as u8; W],
+      dirty: [true; W],
     }
   }
 
@@ -172,6 +186,10 @@ impl<const W: usize> DisplayField<W> {
         self.dirty[i] = true;
       }
     }
+  }
+
+  pub fn clear(&mut self) {
+    self.update_from(&[' ' as u8; W]);
   }
 
   pub fn clear_dirty(&mut self) {
