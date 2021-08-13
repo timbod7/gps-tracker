@@ -131,7 +131,8 @@ pub struct Screen1 {
   speed_field : DisplayField<3>,  
   sats_field  : DisplayField<8>,  
   lat_field   : DisplayField<18>,  
-  lng_field   : DisplayField<18>,  
+  lng_field   : DisplayField<18>,
+  no_signal_blink: bool,  
 }
 
 impl Screen1 {
@@ -142,6 +143,7 @@ impl Screen1 {
       sats_field: DisplayField::new(),
       lat_field: DisplayField::new(),
       lng_field: DisplayField::new(),
+      no_signal_blink: false,
     }
   }
 
@@ -202,7 +204,14 @@ impl Screen1 {
   pub fn update_gga(&mut self, ogga: Option<GGA>) {
     match ogga {
       Option::None => {
-        write_field!(self.sats_field, "Sats: 0").unwrap();
+
+        if self.no_signal_blink {
+          self.sats_field.clear();
+        } else {
+          write_field!(self.sats_field, "Sats: 0").unwrap();
+        }
+        self.no_signal_blink = ! self.no_signal_blink;
+
         self.lat_field.clear();
         self.lng_field.clear();
       },
