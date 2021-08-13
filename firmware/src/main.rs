@@ -21,6 +21,7 @@ use ili9341::{Ili9341, Orientation};
 use display_interface_spi::SPIInterface;
 use u8writer::U8Writer;
 use gps::Gps;
+use nmea0183::coords::Speed;
 
 type Display = ili9341::Ili9341<display_interface_spi::SPIInterface<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::stm32::SPI1, (stm32f4xx_hal::gpio::gpioa::PA5<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA6<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA7<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>)>, stm32f4xx_hal::gpio::gpioa::PA3<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>, stm32f4xx_hal::gpio::gpioa::PA2<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>, stm32f4xx_hal::gpio::gpioa::PA4<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>;
 type Serial = stm32f4xx_hal::serial::Serial<stm32f4xx_hal::stm32::USART1, (stm32f4xx_hal::gpio::gpioa::PA9<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>, stm32f4xx_hal::gpio::gpioa::PA10<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>)>;
@@ -126,10 +127,14 @@ const APP: () = {
       // Fetch the updated GGA and VTG values, if present
       let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
       let mut ovtg: Option<nmea0183::VTG> = Option::None;
+      let mut avg_speed = Speed::from_knots(0f32);
       
       cx.resources.gps.lock( |gps| {
         oogga = gps.take_gga();
-        ovtg = gps.take_vtg();        
+        ovtg = gps.take_vtg();
+        if ovtg.is_some() {
+          avg_speed = gps.avg_speed();
+        }
       });
 
       let mut updated = false;
@@ -139,7 +144,7 @@ const APP: () = {
       }
 
       if let Some(vtg) = ovtg {
-        screen.update_vtg(vtg);
+        screen.update_vtg(vtg, avg_speed);
         updated = true;
       }
 
