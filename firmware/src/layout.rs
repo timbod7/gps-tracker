@@ -153,7 +153,7 @@ impl Screen1 {
   {
     write_field!(self.speed_field, "000").unwrap();
     self.layout.clear(display)?;
-    self.layout.write_text(display, self.layout.char_point(23, 4), "kt")?;
+    self.layout.write_text(display, self.layout.char_point(23, 3), "kt")?;
     Result::Ok(())
   }
 
@@ -162,24 +162,19 @@ impl Screen1 {
   where
   D: DrawTarget<Color = Rgb565>
   {
-    let mut cursor = Point::new(0,0);
-    let down = Point::new(0,CHAR_HEIGHT);
+    let  cursor = Point::new(0,0);
     self.layout.render_field(display, cursor, &mut self.sats_field)?;
-    cursor = cursor + down;
-    self.layout.render_field(display, cursor, &mut self.lat_field)?;
-    cursor = cursor + down;
-    self.layout.render_field(display, cursor, &mut self.lng_field)?;
 
-    self.render_speed(display)?;
+    self.render_speed(display, self.layout.char_point(1, 3))?;
 
     Result::Ok(())
   }
 
-  fn render_speed<D>(&mut self, display: &mut D)-> Result<(), D::Error>
+  fn render_speed<D>(&mut self, display: &mut D,  loc: Point) -> Result<(), D::Error>
   where
     D: DrawTarget<Color = Rgb565>
   {
-    let mut cursor =  self.layout.char_point(1, 4);
+    let mut cursor =  loc;
     let nextc = Point::new(BIG_CHAR_WIDTH, 0);
 
     if let Some(c) = self.speed_field.getdirtychar(0) {
