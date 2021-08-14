@@ -5,6 +5,7 @@
 mod u8writer;
 mod layout;
 mod gps;
+mod debouncer;
 
 use rtt_target::{rtt_init_print, rprintln};
 
@@ -25,13 +26,14 @@ use nmea0183::coords::Speed;
 
 type Display = ili9341::Ili9341<display_interface_spi::SPIInterface<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::stm32::SPI1, (stm32f4xx_hal::gpio::gpioa::PA5<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA6<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA7<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>)>, stm32f4xx_hal::gpio::gpioa::PA3<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>, stm32f4xx_hal::gpio::gpioa::PA2<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>, stm32f4xx_hal::gpio::gpioa::PA4<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>;
 type Serial = stm32f4xx_hal::serial::Serial<stm32f4xx_hal::stm32::USART1, (stm32f4xx_hal::gpio::gpioa::PA9<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>, stm32f4xx_hal::gpio::gpioa::PA10<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>)>;
-
+type Key = stm32f4xx_hal::gpio::gpioa::PA0<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::PullUp>>;
 #[app(device = stm32f4xx_hal::pac, peripherals = true)]
 const APP: () = {
   struct Resources {
     display: Display,
     serial: Serial,
     gps: Gps,
+    key: Key, 
   }
 
   #[init(schedule = [])]
@@ -57,9 +59,9 @@ const APP: () = {
       .dbg_standby().set_bit()
     );
 
-
     // configure the gpio ports
     let gpioa = cx.device.GPIOA.split();
+    let key   = gpioa.pa0.into_pull_up_input();
 
     // configure the display driver
     let cs    = gpioa.pa2.into_push_pull_output();
@@ -100,6 +102,7 @@ const APP: () = {
       display,
       serial,
       gps: Gps::new(),
+      key,
     }
   }
 
@@ -117,39 +120,49 @@ const APP: () = {
     }
   }
 
-  #[idle(resources=[gps,display])]
+  #[idle(resources=[gps,display, key])]
   fn idle(mut cx: idle::Context) -> ! {
-    let mut screen = layout::Screen1::new();
+    let mut screens = layout::Screens::new();
+    let mut debounce = debouncer::Debouncer::new(3);
 
-    screen.render_initial(cx.resources.display).unwrap();
+    screens.render_initial(cx.resources.display).unwrap();
 
     loop {
+      let key = cx.resources.key.is_high().unwrap();
+      match debounce.next(key) {
+        Option::Some(debouncer::Transition::ToLow) => {
+          screens.next_page(cx.resources.display).unwrap();
+        }
+        _ => {}
+      }
+
+
       // Fetch the updated GGA and VTG values, if present
       let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
       let mut ovtg: Option<nmea0183::VTG> = Option::None;
-      let mut avg_speed = Speed::from_knots(0f32);
+      let mut speed_stats = gps::SpeedStats::new();
       
       cx.resources.gps.lock( |gps| {
         oogga = gps.take_gga();
         ovtg = gps.take_vtg();
         if ovtg.is_some() {
-          avg_speed = gps.avg_speed();
+          speed_stats = gps.speed_stats();
         }
       });
 
       let mut updated = false;
       if let Some(ogga) = oogga {
-        screen.update_gga(ogga);
+        screens.update_gga(ogga);
         updated = true;
       }
 
       if let Some(vtg) = ovtg {
-        screen.update_vtg(vtg, avg_speed);
+        screens.update_vtg(vtg, &speed_stats);
         updated = true;
       }
 
       if updated {
-        screen.render_update(cx.resources.display).unwrap();
+        screens.render_update(cx.resources.display).unwrap();
       }
     }
   }

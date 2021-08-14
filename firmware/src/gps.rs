@@ -11,7 +11,22 @@ pub struct Gps {
 
   avg_speed_samples: [f32; SPEED_AVG_SAMPLES],
   avg_i: usize,
+  max_speed: f32,
 
+}
+
+pub struct SpeedStats {
+  pub avg: Speed,
+  pub max: Speed,
+}
+
+impl SpeedStats {
+  pub fn new() -> SpeedStats {
+    SpeedStats {
+      avg : Speed::from_knots(0f32),
+      max: Speed::from_knots(0f32),
+    }
+  }
 }
 
 impl Gps {
@@ -23,6 +38,7 @@ impl Gps {
       vtg: Option::None,
       avg_speed_samples: [0f32; SPEED_AVG_SAMPLES],
       avg_i: 0,
+      max_speed: 0f32,
     }
   }
 
@@ -49,6 +65,9 @@ impl Gps {
           if let Option::Some(vtg) = msg {
             self.avg_speed_samples[self.avg_i] = vtg.speed.as_knots();
             self.avg_i = (self.avg_i + 1) % SPEED_AVG_SAMPLES;
+            if vtg.speed.as_knots() > self.max_speed {
+              self.max_speed = vtg.speed.as_knots();
+            }
             self.vtg.replace(vtg);
           } else {
             self.avg_speed_samples = [0f32; SPEED_AVG_SAMPLES];
@@ -67,11 +86,14 @@ impl Gps {
     self.vtg.take()
   }
 
-  pub fn avg_speed(&self) -> Speed {
+  pub fn speed_stats(&self) -> SpeedStats {
     let mut total = 0f32;
     for i in 0..SPEED_AVG_SAMPLES {
       total += self.avg_speed_samples[i];
     }
-    return  Speed::from_knots(total / SPEED_AVG_SAMPLES as f32);
+    SpeedStats {
+      avg: Speed::from_knots(total / SPEED_AVG_SAMPLES as f32),
+      max: Speed::from_knots(self.max_speed),
+    }
   }
 }

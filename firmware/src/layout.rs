@@ -14,6 +14,7 @@ use core::str;
 use micromath::F32Ext;
 use nmea0183::{GGA, coords::Speed};
 use crate::write_field;
+use crate::gps::SpeedStats;
 
 
 const BIGNUMBER_FONT: MonoFont = MonoFont {
@@ -126,51 +127,109 @@ impl Layout {
   }
 }
 
-pub struct Screen1 {
+pub struct Screens {
   layout: Layout,
+  screens: AnyScreen,
+}
+impl Screens {
+  pub fn new() -> Self {
+    Screens {
+      layout : Layout:: new(),
+      screens: AnyScreen::Screen1(Screen1::new()),
+    }
+  }
+
+  pub fn next_page<D>(&mut self, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = Rgb565>
+  {
+    match &mut self.screens {
+      AnyScreen::Screen1(_) => self.screens = AnyScreen::Screen2(Screen2::new()),
+      AnyScreen::Screen2(_) => self.screens = AnyScreen::Screen1(Screen1::new()),
+    }
+    self.render_initial(display)
+  }
+
+  pub fn render_initial<D>(&mut self, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = Rgb565>
+  {
+    match &mut self.screens {
+      AnyScreen::Screen1(screen1) => screen1.render_initial(&self.layout, display),
+      AnyScreen::Screen2(screen2) => screen2.render_initial(&self.layout, display),
+    }
+  }
+
+  pub fn render_update<D>(&mut self, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = Rgb565>
+  {
+    match &mut self.screens {
+      AnyScreen::Screen1(screen1) => screen1.render_update(&self.layout, display),
+      AnyScreen::Screen2(screen2) => screen2.render_update(&self.layout, display),
+    }
+  }
+
+  pub fn update_gga(&mut self, ogga: Option<GGA>) {
+    match &mut self.screens {
+      AnyScreen::Screen1(screen1) => screen1.update_gga(ogga),
+      AnyScreen::Screen2(screen2) => screen2.update_gga(ogga),
+    }  
+  }
+
+  pub fn update_vtg(&mut self, vtg: VTG, stats: &SpeedStats) {
+    match &mut self.screens {
+      AnyScreen::Screen1(screen1) => screen1.update_vtg(vtg, stats),
+      AnyScreen::Screen2(screen2) => screen2.update_vtg(vtg, stats),
+    }  
+  }
+}
+
+enum AnyScreen {
+  Screen1(Screen1),
+  Screen2(Screen2),
+}
+
+
+pub struct Screen1 {
   speed_field : DisplayField<3>,  
   sats_field  : DisplayField<8>,  
-  lat_field   : DisplayField<18>,  
-  lng_field   : DisplayField<18>,
   no_signal_blink: bool,  
 }
 
 impl Screen1 {
   pub fn new() -> Self {
     Screen1 {
-      layout : Layout:: new(),
       speed_field: DisplayField::new(),
       sats_field: DisplayField::new(),
-      lat_field: DisplayField::new(),
-      lng_field: DisplayField::new(),
       no_signal_blink: false,
     }
   }
 
-  pub fn render_initial<D>(&mut self,  display: &mut D )-> Result<(), D::Error>
+  pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
   D: DrawTarget<Color = Rgb565>
   {
     write_field!(self.speed_field, "000").unwrap();
-    self.layout.clear(display)?;
-    self.layout.write_text(display, self.layout.char_point(23, 3), "kt")?;
+    layout.clear(display)?;
+    layout.write_text(display, layout.char_point(23, 3), "kt")?;
     Result::Ok(())
   }
 
 
-  pub fn render_update<D>(&mut self,  display: &mut D )-> Result<(), D::Error>
+  pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
   D: DrawTarget<Color = Rgb565>
   {
     let  cursor = Point::new(0,0);
-    self.layout.render_field(display, cursor, &mut self.sats_field)?;
+    layout.render_field(display, cursor, &mut self.sats_field)?;
 
-    self.render_speed(display, self.layout.char_point(1, 3))?;
+    self.render_speed(layout, display, layout.char_point(1, 3))?;
 
     Result::Ok(())
   }
 
-  fn render_speed<D>(&mut self, display: &mut D,  loc: Point) -> Result<(), D::Error>
+  fn render_speed<D>(&mut self, layout: &Layout, display: &mut D,  loc: Point) -> Result<(), D::Error>
   where
     D: DrawTarget<Color = Rgb565>
   {
@@ -178,18 +237,18 @@ impl Screen1 {
     let nextc = Point::new(BIG_CHAR_WIDTH, 0);
 
     if let Some(c) = self.speed_field.getdirtychar(0) {
-      cursor = self.layout.write_big_text(display, cursor, c)?
+      cursor = layout.write_big_text(display, cursor, c)?
     } else {
       cursor = cursor + nextc;
     }
     if let Some(c) = self.speed_field.getdirtychar(1) {
-      cursor = self.layout.write_big_text(display, cursor, c)?
+      cursor = layout.write_big_text(display, cursor, c)?
     } else {
       cursor = cursor + nextc;
     }
-    cursor = self.layout.write_big_dp(display, cursor)?;
+    cursor = layout.write_big_dp(display, cursor)?;
     if let Some(c) = self.speed_field.getdirtychar(2) {
-      self.layout.write_big_text(display, cursor, c)?;
+      layout.write_big_text(display, cursor, c)?;
     }
     self.speed_field.clear_dirty();
     Result::Ok(())
@@ -206,20 +265,97 @@ impl Screen1 {
           write_field!(self.sats_field, "Sats: 0").unwrap();
         }
         self.no_signal_blink = ! self.no_signal_blink;
-
-        self.lat_field.clear();
-        self.lng_field.clear();
       },
       Option::Some(gga) => {
         write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use).unwrap();
-        write_field!(self.lat_field, "Lat: {:12.6}", gga.latitude.as_f64()).unwrap();
-        write_field!(self.lng_field, "Lng: {:12.6}", gga.longitude.as_f64()).unwrap();
       }
     }
   }
 
-  pub fn update_vtg(&mut self, vtg: VTG, _avg_speed: Speed) {
+  pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
     write_field!(self.speed_field, "{:3}", (vtg.speed.as_knots() * 10.0).round() as u32).unwrap();
+  }
+}
+
+
+pub struct Screen2 {
+  sats_field  : DisplayField<18>,
+  hdop_field  : DisplayField<18>,  
+  lat_field   : DisplayField<18>,  
+  lng_field   : DisplayField<18>,
+  speed_field : DisplayField<18>,  
+  max_speed_field : DisplayField<18>,  
+
+  no_signal_blink: bool,  
+}
+
+impl Screen2 {
+  pub fn new() -> Self {
+    Screen2 {
+      sats_field: DisplayField::new(),
+      hdop_field: DisplayField::new(),
+      lat_field: DisplayField::new(),
+      lng_field: DisplayField::new(),
+      speed_field: DisplayField::new(),
+      max_speed_field: DisplayField::new(),
+      no_signal_blink: false,
+    }
+  }
+
+  pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = Rgb565>
+  {
+    layout.clear(display)?;
+    Result::Ok(())
+  }
+
+
+  pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = Rgb565>
+  {
+    let mut cursor = Point::new(0,0);
+    let down = Point::new(0, CHAR_HEIGHT);
+
+    layout.render_field(display, cursor, &mut self.sats_field)?;
+    cursor = cursor + down;
+    layout.render_field(display, cursor, &mut self.hdop_field)?;
+    cursor = cursor + down;
+    layout.render_field(display, cursor, &mut self.lat_field)?;
+    cursor = cursor + down;
+    layout.render_field(display, cursor, &mut self.lng_field)?;
+    cursor = cursor + down;
+    layout.render_field(display, cursor, &mut self.speed_field)?;
+    cursor = cursor + down;
+    layout.render_field(display, cursor, &mut self.max_speed_field)?;
+
+    Result::Ok(())
+  }
+
+  pub fn update_gga(&mut self, ogga: Option<GGA>) {
+    match ogga {
+      Option::None => {
+
+        if self.no_signal_blink {
+          self.sats_field.clear();
+        } else {
+          write_field!(self.sats_field, "Sats: 0").unwrap();
+        }
+        self.no_signal_blink = ! self.no_signal_blink;
+      },
+      Option::Some(gga) => {
+        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use).unwrap();
+        write_field!(self.hdop_field, "Hdop: {:5.1}", gga.hdop).unwrap();
+        write_field!(self.lat_field, "Lat : {:12.6}", gga.latitude.as_f64()).unwrap();
+        write_field!(self.lng_field, "Long: {:12.6}", gga.longitude.as_f64()).unwrap();
+      }
+    }
+  }
+
+  pub fn update_vtg(&mut self, vtg: VTG, stats: &SpeedStats) {
+    write_field!(self.speed_field, "Spd : {:3.1}", vtg.speed.as_knots()).unwrap();
+    write_field!(self.max_speed_field, "Max : {:3.1}", stats.max.as_knots()).unwrap();
   }
 }
 
