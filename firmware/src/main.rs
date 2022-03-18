@@ -6,27 +6,31 @@ mod u8writer;
 mod layout;
 mod gps;
 mod debouncer;
+mod memory_display;
 
 use rtt_target::{rtt_init_print, rprintln};
 
 // set the panic handler
 extern crate panic_rtt_target;
 
-use stm32f4xx_hal::{prelude::*, spi, serial, delay::Delay};
+use embedded_hal::spi::{Mode, Phase, Polarity};
+use stm32f4xx_hal::{
+  gpio::{NoPin},
+  prelude::*,
+  serial
+};
+
 use nb::block;
 
 use rtic::app;
 
-use ili9341::{Ili9341, Orientation};
-
-use display_interface_spi::SPIInterface;
 use u8writer::U8Writer;
 use gps::Gps;
-use nmea0183::coords::Speed;
 
-type Display = ili9341::Ili9341<display_interface_spi::SPIInterface<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::stm32::SPI1, (stm32f4xx_hal::gpio::gpioa::PA5<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA6<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>, stm32f4xx_hal::gpio::gpioa::PA7<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF5>>)>, stm32f4xx_hal::gpio::gpioa::PA3<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>, stm32f4xx_hal::gpio::gpioa::PA2<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>, stm32f4xx_hal::gpio::gpioa::PA4<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>>>;
-type Serial = stm32f4xx_hal::serial::Serial<stm32f4xx_hal::stm32::USART1, (stm32f4xx_hal::gpio::gpioa::PA9<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>, stm32f4xx_hal::gpio::gpioa::PA10<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::AF7>>)>;
+type Display = memory_display::MemoryDisplay<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::pac::SPI1, (stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 5_u8>, stm32f4xx_hal::gpio::NoPin, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 7_u8>), stm32f4xx_hal::spi::TransferModeNormal>, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>, 'A', 4_u8>, stm32f4xx_hal::timer::SysDelay, 12000_usize, 240_usize>;
+type Serial = stm32f4xx_hal::serial::Serial<stm32f4xx_hal::pac::USART1, (stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::PushPull, 7_u8>, 'A', 9_u8>, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::PushPull, 7_u8>, 'A', 10_u8>), u8>;
 type Key = stm32f4xx_hal::gpio::gpioa::PA0<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::PullUp>>;
+
 #[app(device = stm32f4xx_hal::pac, peripherals = true)]
 const APP: () = {
   struct Resources {
@@ -47,8 +51,8 @@ const APP: () = {
 
     let clocks = rcc
       .cfgr
-      .use_hse(25.mhz())
-      .sysclk(32.mhz())
+      .use_hse(25.MHz())
+      .sysclk(32.MHz())
       .freeze();
 
     // Enable debugging in sleep modes so that stlink stays alive during wfi etc._
@@ -64,37 +68,28 @@ const APP: () = {
     let key   = gpioa.pa0.into_pull_up_input();
 
     // configure the display driver
-    let cs    = gpioa.pa2.into_push_pull_output();
-    let dc    = gpioa.pa3.into_push_pull_output();
-    let reset = gpioa.pa4.into_push_pull_output();
-    let sck   = gpioa.pa5.into_alternate_af5();
-    let miso  = gpioa.pa6.into_alternate_af5();
-    let mosi  = gpioa.pa7.into_alternate_af5();
-    let spi   = spi::Spi::spi1(
-        cx.device.SPI1,
-        (sck, miso, mosi),
-        ili9341::SPI_MODE,
-        16_000_000.hz(),
-        clocks,
+    let cs = gpioa.pa4.into_push_pull_output();
+    let spi = cx.device.SPI1.spi(
+        (gpioa.pa5, NoPin, gpioa.pa7),
+        Mode {
+          phase: Phase::CaptureOnFirstTransition,
+          polarity: Polarity::IdleLow,
+        },
+        2.MHz(),
+        &clocks,
     );
-    let mut delay = Delay::new(cx.core.SYST, clocks);
-    let display = Ili9341::new(
-      SPIInterface::new(spi, dc, cs),
-      reset,
-      &mut delay,
-      Orientation::Landscape,
-      ili9341::DisplaySize320x480,
-      ).unwrap();
+
+    let delay = cx.core.SYST.delay(&clocks);
+    let display = memory_display::new_ls027b7dh01(spi, cs, delay);
 
     // Configure the serial port for GPS data
-    let tx = gpioa.pa9.into_alternate_af7();
-    let rx = gpioa.pa10.into_alternate_af7();
+    let tx = gpioa.pa9.into_alternate();
+    let rx = gpioa.pa10.into_alternate();
 
-    let mut serial = serial::Serial::usart1(
-      cx.device.USART1,
-      (tx, rx),
-      serial::config::Config::default().baudrate(9600.bps()),
-      clocks
+    let mut serial : Serial = cx.device.USART1.serial(
+      (tx,rx), 
+      9600.bps(), 
+      &clocks
     ).unwrap();
     serial.listen(serial::Event::Rxne);
 
@@ -126,12 +121,14 @@ const APP: () = {
     let mut debounce = debouncer::Debouncer::new(3);
 
     screens.render_initial(cx.resources.display).unwrap();
+    cx.resources.display.refresh();
 
     loop {
-      let key = cx.resources.key.is_high().unwrap();
+      let key = cx.resources.key.is_high();
       match debounce.next(key) {
         Option::Some(debouncer::Transition::ToLow) => {
           screens.next_page(cx.resources.display).unwrap();
+          cx.resources.display.refresh();
         }
         _ => {}
       }
@@ -164,6 +161,7 @@ const APP: () = {
       if updated {
         screens.render_update(cx.resources.display).unwrap();
       }
+      cx.resources.display.refresh();
     }
   }
 

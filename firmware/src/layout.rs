@@ -4,7 +4,7 @@ use crate::U8Writer;
 use embedded_graphics::{
   image::ImageRaw,
   mono_font::{mapping::StrGlyphMapping, DecorationDimensions, MonoFont, MonoTextStyle,MonoTextStyleBuilder},
-  pixelcolor::Rgb565,
+  pixelcolor::BinaryColor,
   prelude::*,
   text::{Baseline, Text, TextStyle},
   primitives::{Rectangle, PrimitiveStyle},
@@ -12,9 +12,13 @@ use embedded_graphics::{
 use core::fmt::{Write};
 use core::str;
 use micromath::F32Ext;
-use nmea0183::{GGA, coords::Speed};
+use nmea0183::{GGA};
 use crate::write_field;
 use crate::gps::SpeedStats;
+
+type DPixelColor = BinaryColor;
+const WHITE: DPixelColor = BinaryColor::On;
+const BLACK: DPixelColor =  BinaryColor::Off;
 
 
 const BIGNUMBER_FONT: MonoFont = MonoFont {
@@ -28,11 +32,11 @@ const BIGNUMBER_FONT: MonoFont = MonoFont {
 };
 
 pub struct Layout {
-  char_style: MonoTextStyle<'static, Rgb565>,
-  big_char_style: MonoTextStyle<'static, Rgb565>,
+  char_style: MonoTextStyle<'static, DPixelColor>,
+  big_char_style: MonoTextStyle<'static, DPixelColor>,
   text_style: TextStyle,
-  bg_fill_style: PrimitiveStyle<Rgb565>,
-  fg_fill_style: PrimitiveStyle<Rgb565>,
+  bg_fill_style: PrimitiveStyle<DPixelColor>,
+  fg_fill_style: PrimitiveStyle<DPixelColor>,
 }
 
 pub const CHAR_WIDTH: i32 = 12;
@@ -43,17 +47,17 @@ impl Layout {
   pub fn new() -> Layout {
     let char_style = MonoTextStyleBuilder::new()
       .font(&profont::PROFONT_18_POINT)
-      .text_color(Rgb565::WHITE)
-      .background_color(Rgb565::BLACK)
+      .text_color(WHITE)
+      .background_color(BLACK)
       .build();
     let big_char_style = MonoTextStyleBuilder::new()
       .font(&BIGNUMBER_FONT)
-      .text_color(Rgb565::WHITE)
-      .background_color(Rgb565::BLACK)
+      .text_color(WHITE)
+      .background_color(BLACK)
       .build();
     let text_style = TextStyle::with_baseline(Baseline::Top);
-    let bg_fill_style = PrimitiveStyle::with_fill(Rgb565::BLACK);
-    let fg_fill_style = PrimitiveStyle::with_fill(Rgb565::WHITE);
+    let bg_fill_style = PrimitiveStyle::with_fill(BLACK);
+    let fg_fill_style = PrimitiveStyle::with_fill(WHITE);
     return Layout {
       char_style,
       big_char_style,
@@ -65,7 +69,7 @@ impl Layout {
 
   pub fn clear<D>(&self, display: &mut D) -> Result<(), D::Error>
   where
-    D: DrawTarget<Color = Rgb565>
+    D: DrawTarget<Color = DPixelColor>
   {
     Rectangle::new(Point::new(0,0), Size::new(480, 320))
     .into_styled(self.bg_fill_style)
@@ -75,7 +79,7 @@ impl Layout {
 
   pub fn write_text<D>(&self, display: &mut D, loc: Point, content: &str) -> Result<Point, D::Error>
   where
-    D: DrawTarget<Color = Rgb565>
+    D: DrawTarget<Color = DPixelColor>
   {
     Text::with_text_style(content, loc, self.char_style, self.text_style)
       .draw(display)
@@ -83,7 +87,7 @@ impl Layout {
 
   pub fn write_big_text<D>(&self, display: &mut D, loc: Point, content: &str) -> Result<Point, D::Error>
   where
-    D: DrawTarget<Color = Rgb565>
+    D: DrawTarget<Color = DPixelColor>
   {
     Text::with_text_style(content, loc, self.big_char_style, self.text_style)
       .draw(display)
@@ -91,7 +95,7 @@ impl Layout {
   
   pub fn write_big_dp<D>(&self, display: &mut D, loc: Point) -> Result<Point, D::Error>
   where
-    D: DrawTarget<Color = Rgb565>
+    D: DrawTarget<Color = DPixelColor>
   {
     let diam = 16;
     let kern = 2;
@@ -104,7 +108,7 @@ impl Layout {
 
   pub fn render_field<D, const N:usize>(&self, display: &mut D, cursor0: Point, field: &mut DisplayField<N>) -> Result<Point, D::Error>
   where
-    D: DrawTarget<Color = Rgb565>
+    D: DrawTarget<Color = DPixelColor>
   {
     let mut cursor = cursor0;
     let left = Point::new(CHAR_WIDTH, 0);
@@ -141,7 +145,7 @@ impl Screens {
 
   pub fn next_page<D>(&mut self, display: &mut D )-> Result<(), D::Error>
   where
-  D: DrawTarget<Color = Rgb565>
+  D: DrawTarget<Color = DPixelColor>
   {
     match &mut self.screens {
       AnyScreen::Screen1(_) => self.screens = AnyScreen::Screen2(Screen2::new()),
@@ -152,7 +156,7 @@ impl Screens {
 
   pub fn render_initial<D>(&mut self, display: &mut D )-> Result<(), D::Error>
   where
-  D: DrawTarget<Color = Rgb565>
+  D: DrawTarget<Color = DPixelColor>
   {
     match &mut self.screens {
       AnyScreen::Screen1(screen1) => screen1.render_initial(&self.layout, display),
@@ -162,7 +166,7 @@ impl Screens {
 
   pub fn render_update<D>(&mut self, display: &mut D )-> Result<(), D::Error>
   where
-  D: DrawTarget<Color = Rgb565>
+  D: DrawTarget<Color = DPixelColor>
   {
     match &mut self.screens {
       AnyScreen::Screen1(screen1) => screen1.render_update(&self.layout, display),
@@ -208,30 +212,30 @@ impl Screen1 {
 
   pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
-  D: DrawTarget<Color = Rgb565>
+  D: DrawTarget<Color = DPixelColor>
   {
     write_field!(self.speed_field, "000").unwrap();
     layout.clear(display)?;
-    layout.write_text(display, layout.char_point(23, 3), "kt")?;
+    layout.write_text(display, layout.char_point(27, 3), "kt")?;
     Result::Ok(())
   }
 
 
   pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
-  D: DrawTarget<Color = Rgb565>
+  D: DrawTarget<Color = DPixelColor>
   {
     let  cursor = Point::new(0,0);
     layout.render_field(display, cursor, &mut self.sats_field)?;
 
-    self.render_speed(layout, display, layout.char_point(1, 3))?;
+    self.render_speed(layout, display, layout.char_point(5, 3))?;
 
     Result::Ok(())
   }
 
   fn render_speed<D>(&mut self, layout: &Layout, display: &mut D,  loc: Point) -> Result<(), D::Error>
   where
-    D: DrawTarget<Color = Rgb565>
+    D: DrawTarget<Color = DPixelColor>
   {
     let mut cursor =  loc;
     let nextc = Point::new(BIG_CHAR_WIDTH, 0);
@@ -304,7 +308,7 @@ impl Screen2 {
 
   pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
-  D: DrawTarget<Color = Rgb565>
+  D: DrawTarget<Color = DPixelColor>
   {
     layout.clear(display)?;
     Result::Ok(())
@@ -313,7 +317,7 @@ impl Screen2 {
 
   pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
-  D: DrawTarget<Color = Rgb565>
+  D: DrawTarget<Color = DPixelColor>
   {
     let mut cursor = Point::new(0,0);
     let down = Point::new(0, CHAR_HEIGHT);
