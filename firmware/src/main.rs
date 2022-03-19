@@ -155,6 +155,7 @@ const APP: () = {
 
       if let Some(vtg) = ovtg {
         screens.update_vtg(vtg, &speed_stats);
+        
         updated = true;
       }
 

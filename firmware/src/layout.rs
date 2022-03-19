@@ -22,9 +22,9 @@ const BLACK: DPixelColor =  BinaryColor::Off;
 
 
 const BIGNUMBER_FONT: MonoFont = MonoFont {
-  image: ImageRaw::new_binary(include_bytes!("assets/bignumbers.raw"), 800),
+  image: ImageRaw::new_binary(include_bytes!("assets/bignumbers.raw"), 1200),
   glyph_mapping: &StrGlyphMapping::new("0123456789", 0),
-  character_size: Size::new(80, 104),
+  character_size: Size::new(120, 156),
   character_spacing: 0,
   baseline: 7,
   underline: DecorationDimensions::default_underline(40),
@@ -41,7 +41,8 @@ pub struct Layout {
 
 pub const CHAR_WIDTH: i32 = 12;
 pub const CHAR_HEIGHT: i32 = 22;
-pub const BIG_CHAR_WIDTH: i32 = 80;
+pub const BIG_CHAR_WIDTH: i32 = BIGNUMBER_FONT.character_size.width as i32;
+pub const BIG_CHAR_HEIGHT: i32 = BIGNUMBER_FONT.character_size.height as i32;
 
 impl Layout {
   pub fn new() -> Layout {
@@ -97,9 +98,9 @@ impl Layout {
   where
     D: DrawTarget<Color = DPixelColor>
   {
-    let diam = 16;
-    let kern = 2;
-    let topleft = loc + Point::new(kern, 104-diam-4);
+    let diam = BIG_CHAR_HEIGHT / 7;
+    let kern = 0;
+    let topleft = loc + Point::new(kern, BIG_CHAR_HEIGHT-diam-4);
     Circle::new(topleft, diam as u32)
       .into_styled(self.fg_fill_style)
       .draw(display)?;
@@ -216,7 +217,7 @@ impl Screen1 {
   {
     write_field!(self.speed_field, "000").unwrap();
     layout.clear(display)?;
-    layout.write_text(display, layout.char_point(27, 3), "kt")?;
+    layout.write_text(display, layout.char_point(30, 0), "kt")?;
     Result::Ok(())
   }
 
@@ -228,7 +229,7 @@ impl Screen1 {
     let  cursor = Point::new(0,0);
     layout.render_field(display, cursor, &mut self.sats_field)?;
 
-    self.render_speed(layout, display, layout.char_point(5, 3))?;
+    self.render_speed(layout, display, layout.char_point(0, 2))?;
 
     Result::Ok(())
   }
