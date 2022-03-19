@@ -198,7 +198,8 @@ enum AnyScreen {
 
 pub struct Screen1 {
   speed_field : DisplayField<3>,  
-  sats_field  : DisplayField<8>,  
+  sats_field  : DisplayField<8>,
+  units_field : DisplayField<2>,  
   no_signal_blink: bool,  
 }
 
@@ -207,6 +208,7 @@ impl Screen1 {
     Screen1 {
       speed_field: DisplayField::new(),
       sats_field: DisplayField::new(),
+      units_field: DisplayField::new(),
       no_signal_blink: false,
     }
   }
@@ -215,9 +217,9 @@ impl Screen1 {
   where
   D: DrawTarget<Color = DPixelColor>
   {
+    write_field!(self.units_field, "kt").unwrap();
     write_field!(self.speed_field, "000").unwrap();
     layout.clear(display)?;
-    layout.write_text(display, layout.char_point(30, 0), "kt")?;
     Result::Ok(())
   }
 
@@ -226,8 +228,8 @@ impl Screen1 {
   where
   D: DrawTarget<Color = DPixelColor>
   {
-    let  cursor = Point::new(0,0);
-    layout.render_field(display, cursor, &mut self.sats_field)?;
+    layout.render_field(display, Point::new(CHAR_WIDTH*2,CHAR_HEIGHT/2), &mut self.sats_field)?;
+    layout.render_field(display, Point::new(CHAR_WIDTH*29,CHAR_HEIGHT/2), &mut self.units_field)?;
 
     self.render_speed(layout, display, layout.char_point(0, 2))?;
 
