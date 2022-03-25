@@ -150,6 +150,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwt-systick-monotonic"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d51defa1e02b32ded3e28e15fc90e19216de08e2127a6fa15e19081836d6f13e"
+dependencies = [
+ "cortex-m",
+ "fugit",
+ "rtic-monotonic",
+]
+
+[[package]]
 name = "embedded-dma"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -250,6 +261,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",
+ "dwt-systick-monotonic",
  "embedded-graphics",
  "embedded-hal 0.2.7",
  "micromath 2.0.0",
