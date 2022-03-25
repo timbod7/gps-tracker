@@ -16,6 +16,7 @@ extern crate panic_rtt_target;
 use embedded_hal::spi::{Mode, Phase, Polarity};
 use stm32f4xx_hal::{
   gpio::{NoPin},
+  adc,
   prelude::*,
   serial
 };
@@ -30,6 +31,8 @@ use gps::Gps;
 type Display = memory_display::MemoryDisplay<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::pac::SPI1, (stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 5_u8>, stm32f4xx_hal::gpio::NoPin, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 7_u8>), stm32f4xx_hal::spi::TransferModeNormal>, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>, 'A', 4_u8>, stm32f4xx_hal::timer::SysDelay, 12000_usize, 240_usize>;
 type Serial = stm32f4xx_hal::serial::Serial<stm32f4xx_hal::pac::USART1, (stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::PushPull, 7_u8>, 'A', 9_u8>, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::PushPull, 7_u8>, 'A', 10_u8>), u8>;
 type Key = stm32f4xx_hal::gpio::gpioa::PA0<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::PullUp>>;
+type Adc = stm32f4xx_hal::adc::Adc<stm32f4xx_hal::pac::ADC1>;
+type Vin = stm32f4xx_hal::gpio::gpioa::PA1<stm32f4xx_hal::gpio::Analog>;
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true)]
 const APP: () = {
@@ -37,7 +40,9 @@ const APP: () = {
     display: Display,
     serial: Serial,
     gps: Gps,
-    key: Key, 
+    key: Key,
+    adc: Adc,
+    vin: Vin,
   }
 
   #[init(schedule = [])]
@@ -66,6 +71,7 @@ const APP: () = {
     // configure the gpio ports
     let gpioa = cx.device.GPIOA.split();
     let key   = gpioa.pa0.into_pull_up_input();
+    let vin = gpioa.pa1.into_analog();
 
     // configure the display driver
     let cs = gpioa.pa4.into_push_pull_output();
@@ -93,11 +99,17 @@ const APP: () = {
     ).unwrap();
     serial.listen(serial::Event::Rxne);
 
+    // Configure the ADC for battery voltage
+    let adc_config = adc::config::AdcConfig::default();
+    let adc = adc::Adc::adc1(cx.device.ADC1, true, adc_config);
+
     init::LateResources {
       display,
       serial,
       gps: Gps::new(),
       key,
+      adc,
+      vin,
     }
   }
 
@@ -115,7 +127,7 @@ const APP: () = {
     }
   }
 
-  #[idle(resources=[gps,display, key])]
+  #[idle(resources=[gps, display, key, adc, vin])]
   fn idle(mut cx: idle::Context) -> ! {
     let mut screens = layout::Screens::new();
     let mut debounce = debouncer::Debouncer::new(3);
@@ -132,7 +144,6 @@ const APP: () = {
         }
         _ => {}
       }
-
 
       // Fetch the updated GGA and VTG values, if present
       let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
@@ -159,10 +170,18 @@ const APP: () = {
         updated = true;
       }
 
+      
+      let sample = cx.resources.adc.convert(cx.resources.vin, adc::config::SampleTime::Cycles_480);
+      let vbat = cx.resources.adc.sample_to_millivolts(sample) * 2;
+      screens.update_vbat(vbat);
+      updated = true;
+
       if updated {
         screens.render_update(cx.resources.display).unwrap();
       }
       cx.resources.display.refresh();
+
+
     }
   }
 

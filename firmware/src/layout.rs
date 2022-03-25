@@ -188,6 +188,13 @@ impl Screens {
       AnyScreen::Screen2(screen2) => screen2.update_vtg(vtg, stats),
     }  
   }
+
+  pub fn update_vbat(&mut self, mv: u16 ) {
+    match &mut self.screens {
+      AnyScreen::Screen1(screen1) => (),
+      AnyScreen::Screen2(screen2) => screen2.update_vbat(mv),
+    }  
+  }
 }
 
 enum AnyScreen {
@@ -291,7 +298,8 @@ pub struct Screen2 {
   lat_field   : DisplayField<18>,  
   lng_field   : DisplayField<18>,
   speed_field : DisplayField<18>,  
-  max_speed_field : DisplayField<18>,  
+  max_speed_field : DisplayField<18>,
+  vbat_field: DisplayField<6>,  
 
   no_signal_blink: bool,  
 }
@@ -305,6 +313,7 @@ impl Screen2 {
       lng_field: DisplayField::new(),
       speed_field: DisplayField::new(),
       max_speed_field: DisplayField::new(),
+      vbat_field: DisplayField::new(),
       no_signal_blink: false,
     }
   }
@@ -336,7 +345,8 @@ impl Screen2 {
     layout.render_field(display, cursor, &mut self.speed_field)?;
     cursor = cursor + down;
     layout.render_field(display, cursor, &mut self.max_speed_field)?;
-
+    cursor = cursor + down;
+    layout.render_field(display, cursor, &mut self.vbat_field)?;
     Result::Ok(())
   }
 
@@ -363,6 +373,10 @@ impl Screen2 {
   pub fn update_vtg(&mut self, vtg: VTG, stats: &SpeedStats) {
     write_field!(self.speed_field, "Spd : {:3.1}", vtg.speed.as_knots()).unwrap();
     write_field!(self.max_speed_field, "Max : {:3.1}", stats.max.as_knots()).unwrap();
+  }
+
+  pub fn update_vbat(&mut self, mv: u16 ) {
+    write_field!(self.lng_field, "Vbat: {}mV", mv).unwrap();
   }
 }
 
