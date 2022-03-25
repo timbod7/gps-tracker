@@ -191,7 +191,7 @@ impl Screens {
 
   pub fn update_vbat(&mut self, mv: u16 ) {
     match &mut self.screens {
-      AnyScreen::Screen1(screen1) => (),
+      AnyScreen::Screen1(screen1) => screen1.update_vbat(mv),
       AnyScreen::Screen2(screen2) => screen2.update_vbat(mv),
     }  
   }
@@ -208,6 +208,7 @@ pub struct Screen1 {
   sats_field  : DisplayField<8>,
   units_field : DisplayField<2>,  
   no_signal_blink: bool,  
+  bat_percent : u32,
 }
 
 impl Screen1 {
@@ -217,6 +218,7 @@ impl Screen1 {
       sats_field: DisplayField::new(),
       units_field: DisplayField::new(),
       no_signal_blink: false,
+      bat_percent: 0,
     }
   }
 
@@ -227,6 +229,7 @@ impl Screen1 {
     write_field!(self.units_field, "kt").unwrap();
     write_field!(self.speed_field, "000").unwrap();
     layout.clear(display)?;
+    render_battery_top_centre(display, layout, self.bat_percent)?;
     Result::Ok(())
   }
 
@@ -235,6 +238,8 @@ impl Screen1 {
   where
   D: DrawTarget<Color = DPixelColor>
   {
+    render_battery_top_centre(display, layout, self.bat_percent)?;
+
     layout.render_field(display, Point::new(CHAR_WIDTH*2,CHAR_HEIGHT/2), &mut self.sats_field)?;
     layout.render_field(display, Point::new(CHAR_WIDTH*29,CHAR_HEIGHT/2), &mut self.units_field)?;
 
@@ -289,11 +294,15 @@ impl Screen1 {
   pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
     write_field!(self.speed_field, "{:3}", (vtg.speed.as_knots() * 10.0).round() as u32).unwrap();
   }
+
+  pub fn update_vbat(&mut self, mv: u16 ) {
+    self.bat_percent = battery_percent(mv as u32);
+  }
 }
 
 
 pub struct Screen2 {
-  sats_field  : DisplayField<18>,
+  sats_field  : DisplayField<9>,
   hdop_field  : DisplayField<18>,  
   lat_field   : DisplayField<18>,  
   lng_field   : DisplayField<18>,
@@ -427,6 +436,62 @@ impl<const W: usize> DisplayField<W> {
   }
 }
 
+const BATTERY_WIDTH: u32 = 30;
+const BATTERY_HEIGHT: u32 = 16;
+
+const BATTERY_MINV : u32 = 3400;
+const BATTERY_MAXV : u32 = 4200;
+
+fn battery_percent(batmv: u32) -> u32 {
+  if batmv < BATTERY_MINV {
+    0
+  } else if batmv > BATTERY_MAXV {
+    100
+  } else {
+    (batmv - BATTERY_MINV) * 100 / (BATTERY_MAXV - BATTERY_MINV)
+  }
+}
+
+pub fn render_battery_top_centre<D>(display: &mut D, layout: &Layout, percent: u32)-> Result<(), D::Error>
+where
+D: DrawTarget<Color = DPixelColor> {
+
+  let loc = Point::new(
+    ((display.bounding_box().size.width  - BATTERY_WIDTH) / 2) as i32,
+    15,
+  );
+  render_battery(display, layout, loc, percent)
+}
+
+pub fn render_battery<D>(display: &mut D, layout: &Layout, loc: Point, percent: u32)-> Result<(), D::Error>
+where
+D: DrawTarget<Color = DPixelColor> {
+
+  let size = Size::new(BATTERY_WIDTH,BATTERY_HEIGHT);
+  let border = Size::new(2,2);
+  let border2 = Size::new(3,3);
+  let nib_size = Size::new(3,6);
+
+  Rectangle::new(loc, size)
+      .into_styled(layout.fg_fill_style)
+      .draw(display)?;
+
+  Rectangle::new(loc + Size::new(size.width, (size.height - nib_size.height)/2), nib_size)
+      .into_styled(layout.fg_fill_style)
+      .draw(display)?;
+
+  Rectangle::new(loc + border, size - border * 2)
+      .into_styled(layout.bg_fill_style)
+      .draw(display)?;
+
+  let mut fsize = size - border2 * 2;
+  fsize.width = fsize.width * percent / 100;
+  Rectangle::new(loc + border2, fsize)
+      .into_styled(layout.fg_fill_style)
+      .draw(display)?;
+  Ok(())
+}
+
 #[macro_export]
 macro_rules! write_field {
   ($displayfield:expr, $($arg:tt)*) => {
@@ -440,3 +505,5 @@ macro_rules! write_field {
     }
   }
 }
+
+
