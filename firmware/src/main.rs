@@ -8,10 +8,12 @@ mod gps;
 mod debouncer;
 mod memory_display;
 
-use rtt_target::{rtt_init_print, rprintln};
-
 // set the panic handler
 extern crate panic_rtt_target;
+
+
+#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI0])]
+mod app {
 
 use embedded_hal::spi::{Mode, Phase, Polarity};
 use stm32f4xx_hal::{
@@ -21,32 +23,39 @@ use stm32f4xx_hal::{
   serial
 };
 
+use rtt_target::{rtt_init_print, rprintln};
+
 use nb::block;
 
-use rtic::app;
+use crate::gps;
+use crate::gps::Gps;
+use crate::layout;
+use crate::debouncer;
+use crate::memory_display;
 
-use u8writer::U8Writer;
-use gps::Gps;
-
-type Display = memory_display::MemoryDisplay<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::pac::SPI1, (stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 5_u8>, stm32f4xx_hal::gpio::NoPin, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 7_u8>), stm32f4xx_hal::spi::TransferModeNormal>, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>, 'A', 4_u8>, stm32f4xx_hal::timer::SysDelay, 12000_usize, 240_usize>;
+type Display = crate::memory_display::MemoryDisplay<stm32f4xx_hal::spi::Spi<stm32f4xx_hal::pac::SPI1, (stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 5_u8>, stm32f4xx_hal::gpio::NoPin, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::Floating>, 'A', 7_u8>), stm32f4xx_hal::spi::TransferModeNormal>, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Output<stm32f4xx_hal::gpio::PushPull>, 'A', 4_u8>, stm32f4xx_hal::timer::SysDelay, 12000_usize, 240_usize>;
 type Serial = stm32f4xx_hal::serial::Serial<stm32f4xx_hal::pac::USART1, (stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::PushPull, 7_u8>, 'A', 9_u8>, stm32f4xx_hal::gpio::Pin<stm32f4xx_hal::gpio::Alternate<stm32f4xx_hal::gpio::PushPull, 7_u8>, 'A', 10_u8>), u8>;
 type Key = stm32f4xx_hal::gpio::gpioa::PA0<stm32f4xx_hal::gpio::Input<stm32f4xx_hal::gpio::PullUp>>;
 type Adc = stm32f4xx_hal::adc::Adc<stm32f4xx_hal::pac::ADC1>;
 type Vin = stm32f4xx_hal::gpio::gpioa::PA1<stm32f4xx_hal::gpio::Analog>;
 
-#[app(device = stm32f4xx_hal::pac, peripherals = true)]
-const APP: () = {
-  struct Resources {
-    display: Display,
-    serial: Serial,
+
+  #[shared]
+  struct Shared {
     gps: Gps,
+  }
+
+  #[local]
+  struct Local {
+    serial: Serial,
+    display: Display,
     key: Key,
     adc: Adc,
     vin: Vin,
   }
 
-  #[init(schedule = [])]
-  fn init(cx: init::Context) -> init::LateResources {
+  #[init()]
+  fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
     rtt_init_print!();
     rprintln!("Starting init");
 
@@ -103,44 +112,50 @@ const APP: () = {
     let adc_config = adc::config::AdcConfig::default();
     let adc = adc::Adc::adc1(cx.device.ADC1, true, adc_config);
 
-    init::LateResources {
-      display,
-      serial,
+    let shared = Shared {
       gps: Gps::new(),
+    };
+
+    let local = Local {
+      serial,
+      display,
       key,
       adc,
       vin,
-    }
+    };
+
+    (shared, local, init::Monotonics())
+
   }
 
-  #[task(binds = USART1, resources=[serial, gps])]
-  fn usart1(cx: usart1::Context) {
-    let ereceived: Result<u8,serial::Error> = block!(cx.resources.serial.read());
+  #[task(binds = USART1, shared=[gps], local=[serial])]
+  fn usart1(mut cx: usart1::Context) {
+    let ereceived: Result<u8,serial::Error> = block!(cx.local.serial.read());
     match ereceived {
       Result::Err(_e) => {
         rprintln!("usart1: error");
-        cx.resources.gps.parse_clear();
+        cx.shared.gps.lock( |gps| gps.parse_clear());
       },
       Result::Ok(received) => {
-        cx.resources.gps.parse_u8(received);
+        cx.shared.gps.lock( |gps| gps.parse_u8(received));
       },
     }
   }
 
-  #[idle(resources=[gps, display, key, adc, vin])]
+  #[idle(shared=[gps], local=[key,display,adc,vin])]
   fn idle(mut cx: idle::Context) -> ! {
     let mut screens = layout::Screens::new();
     let mut debounce = debouncer::Debouncer::new(3);
 
-    screens.render_initial(cx.resources.display).unwrap();
-    cx.resources.display.refresh();
+    screens.render_initial(cx.local.display).unwrap();
+    cx.local.display.refresh();
 
     loop {
-      let key = cx.resources.key.is_high();
+      let key = cx.local.key.is_high();
       match debounce.next(key) {
         Option::Some(debouncer::Transition::ToLow) => {
-          screens.next_page(cx.resources.display).unwrap();
-          cx.resources.display.refresh();
+          screens.next_page(cx.local.display).unwrap();
+          cx.local.display.refresh();
         }
         _ => {}
       }
@@ -150,7 +165,7 @@ const APP: () = {
       let mut ovtg: Option<nmea0183::VTG> = Option::None;
       let mut speed_stats = gps::SpeedStats::new();
       
-      cx.resources.gps.lock( |gps| {
+      cx.shared.gps.lock( |gps| {
         oogga = gps.take_gga();
         ovtg = gps.take_vtg();
         if ovtg.is_some() {
@@ -171,27 +186,16 @@ const APP: () = {
       }
 
       
-      let sample = cx.resources.adc.convert(cx.resources.vin, adc::config::SampleTime::Cycles_480);
-      let vbat = cx.resources.adc.sample_to_millivolts(sample) * 2;
+      let sample = cx.local.adc.convert(cx.local.vin, adc::config::SampleTime::Cycles_480);
+      let vbat = cx.local.adc.sample_to_millivolts(sample) * 2;
       screens.update_vbat(vbat);
       updated = true;
 
       if updated {
-        screens.render_update(cx.resources.display).unwrap();
+        screens.render_update(cx.local.display).unwrap();
       }
-      cx.resources.display.refresh();
-
-
+      cx.local.display.refresh();
     }
   }
-
-
-
-  // RTIC requires that unused interrupts are declared in an extern block when
-  // using software tasks; these free interrupts will be used to dispatch the
-  // software tasks.
-  extern "C" {
-      fn USART3();
-  }
-};
+}
 

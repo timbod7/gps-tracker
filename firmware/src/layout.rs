@@ -1,6 +1,6 @@
 use nmea0183::VTG;
 use embedded_graphics::primitives::Circle;
-use crate::U8Writer;
+use crate::u8writer::U8Writer;
 use embedded_graphics::{
   image::ImageRaw,
   mono_font::{mapping::StrGlyphMapping, DecorationDimensions, MonoFont, MonoTextStyle,MonoTextStyleBuilder},
