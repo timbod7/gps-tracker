@@ -153,28 +153,18 @@ impl Screens {
       AnyScreen::Screen3(_) => self.screens = AnyScreen::Screen1(Screen1::new()),
 
     }
-    self.render_initial(display)
+    self.layout.clear(display);
+    self.render(display)
   }
 
-  pub fn render_initial<D>(&mut self, display: &mut D )-> Result<(), D::Error>
+  pub fn render<D>(&mut self, display: &mut D )-> Result<(), D::Error>
   where
   D: DrawTarget<Color = DPixelColor>
   {
     match &mut self.screens {
-      AnyScreen::Screen1(screen1) => screen1.render_initial(&self.layout, display),
-      AnyScreen::Screen2(screen2) => screen2.render_initial(&self.layout, display),
-      AnyScreen::Screen3(screen3) => screen3.render_initial(&self.layout, display),
-    }
-  }
-
-  pub fn render_update<D>(&mut self, display: &mut D )-> Result<(), D::Error>
-  where
-  D: DrawTarget<Color = DPixelColor>
-  {
-    match &mut self.screens {
-      AnyScreen::Screen1(screen1) => screen1.render_update(&self.layout, display),
-      AnyScreen::Screen2(screen2) => screen2.render_update(&self.layout, display),
-      AnyScreen::Screen3(screen3) => screen3.render_update(&self.layout, display),
+      AnyScreen::Screen1(screen1) => screen1.render(&self.layout, display),
+      AnyScreen::Screen2(screen2) => screen2.render(&self.layout, display),
+      AnyScreen::Screen3(screen3) => screen3.render(&self.layout, display),
     }
   }
 
@@ -209,49 +199,74 @@ enum AnyScreen {
   Screen3(Screen3),
 }
 
+pub struct StatusLine {
+  sats_field  : DisplayField<8>,
+  no_signal_blink: bool,  
+  bat_percent : Option<u32>,
+  label: DisplayField<4>,
+}
+
+impl StatusLine {
+  pub fn new(label: &str) -> Self {
+    StatusLine {
+      sats_field: DisplayField::new(),
+      no_signal_blink: false,
+      bat_percent: None,
+      label: DisplayField::from_str(label)
+    }
+  }
+}
+
+impl StatusLine {
+  pub fn render<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = DPixelColor>
+  {
+    layout.render_field(display, Point::new(CHAR_WIDTH*2,CHAR_HEIGHT/2), &mut self.sats_field)?;
+    if let Some(bat_percent) = self.bat_percent {
+      render_battery_top_centre(display, layout, bat_percent)?;
+    } 
+    layout.render_field(display, Point::new(CHAR_WIDTH*29,CHAR_HEIGHT/2), &mut self.label)?;
+    Result::Ok(())
+  }
+
+  pub fn update_vbat(&mut self, mv: u16 ) {
+    self.bat_percent = Some(battery_percent(mv as u32));
+  }
+  
+  pub fn update_sats(&mut self, num_sats: u8) {
+    if num_sats == 0 {
+      self.no_signal_blink = ! self.no_signal_blink;
+      if self.no_signal_blink {
+        self.sats_field.clear();
+      } else {
+        write_field!(self.sats_field, "Sats: 0").unwrap();
+      }
+    }
+  }
+}
+
+
 
 pub struct Screen1 {
+  status_line: StatusLine,
   speed_field : DisplayField<3>,  
-  sats_field  : DisplayField<8>,
-  units_field : DisplayField<2>,  
-  no_signal_blink: bool,  
-  bat_percent : u32,
 }
 
 impl Screen1 {
   pub fn new() -> Self {
     Screen1 {
+      status_line: StatusLine::new("kt"),
       speed_field: DisplayField::new(),
-      sats_field: DisplayField::new(),
-      units_field: DisplayField::new(),
-      no_signal_blink: false,
-      bat_percent: 0,
     }
   }
 
-  pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+  pub fn render<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
   D: DrawTarget<Color = DPixelColor>
   {
-    write_field!(self.units_field, "kt").unwrap();
-    write_field!(self.speed_field, "000").unwrap();
-    layout.clear(display)?;
-    render_battery_top_centre(display, layout, self.bat_percent)?;
-    Result::Ok(())
-  }
-
-
-  pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
-  where
-  D: DrawTarget<Color = DPixelColor>
-  {
-    render_battery_top_centre(display, layout, self.bat_percent)?;
-
-    layout.render_field(display, Point::new(CHAR_WIDTH*2,CHAR_HEIGHT/2), &mut self.sats_field)?;
-    layout.render_field(display, Point::new(CHAR_WIDTH*29,CHAR_HEIGHT/2), &mut self.units_field)?;
-
+    self.status_line.render(layout, display)?;
     self.render_speed(layout, display, layout.char_point(0, 2))?;
-
     Result::Ok(())
   }
 
@@ -282,20 +297,7 @@ impl Screen1 {
 
 
   pub fn update_gga(&mut self, ogga: Option<GGA>) {
-    match ogga {
-      Option::None => {
-
-        if self.no_signal_blink {
-          self.sats_field.clear();
-        } else {
-          write_field!(self.sats_field, "Sats: 0").unwrap();
-        }
-        self.no_signal_blink = ! self.no_signal_blink;
-      },
-      Option::Some(gga) => {
-        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use).unwrap();
-      }
-    }
+    self.status_line.update_sats( ogga.map_or(0, |gga| gga.sat_in_use));
   }
 
   pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
@@ -303,52 +305,29 @@ impl Screen1 {
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
-    self.bat_percent = battery_percent(mv as u32);
+    self.status_line.update_vbat(mv);
   }
 }
 
 pub struct Screen2 {
+  status_line: StatusLine,
   cog_field : DisplayField<3>,  
-  sats_field  : DisplayField<8>,
-  units_field : DisplayField<3>,  
-  no_signal_blink: bool,  
-  bat_percent : u32,
 }
 
 impl Screen2 {
   pub fn new() -> Self {
     Screen2 {
+      status_line: StatusLine::new("COG"),
       cog_field: DisplayField::new(),
-      sats_field: DisplayField::new(),
-      units_field: DisplayField::new(),
-      no_signal_blink: false,
-      bat_percent: 0,
     }
   }
 
-  pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+  pub fn render<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
   D: DrawTarget<Color = DPixelColor>
   {
-    write_field!(self.units_field, "COG").unwrap();
-    write_field!(self.cog_field, "000").unwrap();
-    layout.clear(display)?;
-    render_battery_top_centre(display, layout, self.bat_percent)?;
-    Result::Ok(())
-  }
-
-
-  pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
-  where
-  D: DrawTarget<Color = DPixelColor>
-  {
-    render_battery_top_centre(display, layout, self.bat_percent)?;
-
-    layout.render_field(display, Point::new(CHAR_WIDTH*2,CHAR_HEIGHT/2), &mut self.sats_field)?;
-    layout.render_field(display, Point::new(CHAR_WIDTH*29,CHAR_HEIGHT/2), &mut self.units_field)?;
-
-    self.render_cog(layout, display, layout.char_point(1, 2))?;
-
+    self.status_line.render(layout, display)?;
+    self.render_cog(layout, display, layout.char_point(0, 2))?;
     Result::Ok(())
   }
 
@@ -376,89 +355,58 @@ impl Screen2 {
     Result::Ok(())
   }
 
-
   pub fn update_gga(&mut self, ogga: Option<GGA>) {
-    match ogga {
-      Option::None => {
-
-        if self.no_signal_blink {
-          self.sats_field.clear();
-        } else {
-          write_field!(self.sats_field, "Sats: 0").unwrap();
-        }
-        self.no_signal_blink = ! self.no_signal_blink;
-      },
-      Option::Some(gga) => {
-        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use).unwrap();
-      }
-    }
+    self.status_line.update_sats( ogga.map_or(0, |gga| gga.sat_in_use));
   }
 
   pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
     if let Some(course) = vtg.course {
       write_field!(self.cog_field, "{:0>3}",course.degrees).unwrap();
     } else {
-      write_field!(self.cog_field, "000").unwrap();
+      write_field!(self.cog_field, "---").unwrap();
     }
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
-    self.bat_percent = battery_percent(mv as u32);
+    self.status_line.update_vbat(mv);
   }
 }
 
 
 
 pub struct Screen3 {
-  sats_field  : DisplayField<9>,
+  status_line: StatusLine,
   hdop_field  : DisplayField<18>,  
   lat_field   : DisplayField<18>,  
   lng_field   : DisplayField<18>,
   speed_field : DisplayField<18>,  
   max_speed_field : DisplayField<18>,
   vbat_field: DisplayField<18>,  
-
-  no_signal_blink: bool,  
 }
 
 impl Screen3 {
   pub fn new() -> Self {
     Screen3 {
-      sats_field: DisplayField::new(),
-      hdop_field: DisplayField::new(),
-      lat_field: DisplayField::new(),
-      lng_field: DisplayField::new(),
-      speed_field: DisplayField::new(),
-      max_speed_field: DisplayField::new(),
-      vbat_field: DisplayField::new(),
-      no_signal_blink: false,
+      status_line: StatusLine::new(""),
+      hdop_field: DisplayField::from_str("Hdop:"),
+      lat_field: DisplayField::from_str("Lat :"),
+      lng_field: DisplayField::from_str("Lng :"),
+      speed_field: DisplayField::from_str("Spd :"),
+      max_speed_field: DisplayField::from_str("Max :"),
+      vbat_field: DisplayField::from_str("Vbat:"),
     }
   }
 
-  pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+
+  pub fn render<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
   where
   D: DrawTarget<Color = DPixelColor>
   {
-    layout.clear(display)?;
-    write_field!(self.sats_field, "Sats:").unwrap();
-    write_field!(self.hdop_field, "Hdop:").unwrap();
-    write_field!(self.lat_field, "Lat :").unwrap();
-    write_field!(self.lng_field, "Long:").unwrap();
-    write_field!(self.speed_field, "Spd :").unwrap();
-    write_field!(self.max_speed_field, "Max :").unwrap();
-    write_field!(self.vbat_field, "Vbat:").unwrap();
-    Result::Ok(())
-  }
 
+    self.status_line.render(layout, display)?;
 
-  pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
-  where
-  D: DrawTarget<Color = DPixelColor>
-  {
-    let mut cursor = Point::new(0,0);
-    let down = Point::new(0, CHAR_HEIGHT);
-
-    layout.render_field(display, cursor, &mut self.sats_field)?;
+    let mut cursor = Point::new(CHAR_WIDTH * 2, CHAR_HEIGHT/2);
+    let down = Point::new(0,  CHAR_HEIGHT*2);
     cursor = cursor + down;
     layout.render_field(display, cursor, &mut self.hdop_field)?;
     cursor = cursor + down;
@@ -478,16 +426,9 @@ impl Screen3 {
   pub fn update_gga(&mut self, ogga: Option<GGA>) {
     match ogga {
       Option::None => {
-
-        if self.no_signal_blink {
-          self.sats_field.clear();
-        } else {
-          write_field!(self.sats_field, "Sats: 0").unwrap();
-        }
-        self.no_signal_blink = ! self.no_signal_blink;
+        self.status_line.update_sats(0);
       },
       Option::Some(gga) => {
-        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use).unwrap();
         write_field!(self.hdop_field, "Hdop: {:5.1}", gga.hdop).unwrap();
         write_field!(self.lat_field, "Lat : {:12.6}", gga.latitude.as_f64()).unwrap();
         write_field!(self.lng_field, "Long: {:12.6}", gga.longitude.as_f64()).unwrap();
@@ -501,6 +442,7 @@ impl Screen3 {
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
+    self.status_line.update_vbat(mv);
     write_field!(self.vbat_field, "Vbat: {}mV", mv).unwrap();
   }
 }
@@ -521,6 +463,12 @@ impl<const W: usize> DisplayField<W> {
       dirty: [true; W],
     }
   }
+  pub fn from_str(s: &str)-> Self {
+    let mut f = DisplayField::new();
+    write_field!(f, "{}", s).unwrap();
+    f
+  }
+
 
   pub fn tmpbuf(&self) -> [u8; W] {
     [0; W]

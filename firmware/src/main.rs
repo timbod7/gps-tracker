@@ -168,7 +168,7 @@ type MyMono = DwtSystick<MONO_HZ>;
     let mut screens = layout::Screens::new();
     let mut debounce = debouncer::Debouncer::new(3);
 
-    screens.render_initial(cx.local.display).unwrap();
+    screens.render(cx.local.display).unwrap();
     screens.update_vbat(0);
 
     cx.local.display.refresh();
@@ -214,7 +214,7 @@ type MyMono = DwtSystick<MONO_HZ>;
       }
 
       if updated {
-        screens.render_update(cx.local.display).unwrap();
+        screens.render(cx.local.display).unwrap();
       }
       cx.local.display.refresh();
 
