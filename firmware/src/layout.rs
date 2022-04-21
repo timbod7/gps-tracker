@@ -118,7 +118,6 @@ impl Layout {
         self.write_text(display, cursor, c)?;
       }
       cursor = cursor + left;
-
     }
     field.clear_dirty();
     Result::Ok(cursor)
@@ -150,7 +149,9 @@ impl Screens {
   {
     match &mut self.screens {
       AnyScreen::Screen1(_) => self.screens = AnyScreen::Screen2(Screen2::new()),
-      AnyScreen::Screen2(_) => self.screens = AnyScreen::Screen1(Screen1::new()),
+      AnyScreen::Screen2(_) => self.screens = AnyScreen::Screen3(Screen3::new()),
+      AnyScreen::Screen3(_) => self.screens = AnyScreen::Screen1(Screen1::new()),
+
     }
     self.render_initial(display)
   }
@@ -162,6 +163,7 @@ impl Screens {
     match &mut self.screens {
       AnyScreen::Screen1(screen1) => screen1.render_initial(&self.layout, display),
       AnyScreen::Screen2(screen2) => screen2.render_initial(&self.layout, display),
+      AnyScreen::Screen3(screen3) => screen3.render_initial(&self.layout, display),
     }
   }
 
@@ -172,6 +174,7 @@ impl Screens {
     match &mut self.screens {
       AnyScreen::Screen1(screen1) => screen1.render_update(&self.layout, display),
       AnyScreen::Screen2(screen2) => screen2.render_update(&self.layout, display),
+      AnyScreen::Screen3(screen3) => screen3.render_update(&self.layout, display),
     }
   }
 
@@ -179,6 +182,7 @@ impl Screens {
     match &mut self.screens {
       AnyScreen::Screen1(screen1) => screen1.update_gga(ogga),
       AnyScreen::Screen2(screen2) => screen2.update_gga(ogga),
+      AnyScreen::Screen3(screen3) => screen3.update_gga(ogga),
     }  
   }
 
@@ -186,6 +190,7 @@ impl Screens {
     match &mut self.screens {
       AnyScreen::Screen1(screen1) => screen1.update_vtg(vtg, stats),
       AnyScreen::Screen2(screen2) => screen2.update_vtg(vtg, stats),
+      AnyScreen::Screen3(screen3) => screen3.update_vtg(vtg, stats),
     }  
   }
 
@@ -193,6 +198,7 @@ impl Screens {
     match &mut self.screens {
       AnyScreen::Screen1(screen1) => screen1.update_vbat(mv),
       AnyScreen::Screen2(screen2) => screen2.update_vbat(mv),
+      AnyScreen::Screen3(screen3) => screen3.update_vbat(mv),
     }  
   }
 }
@@ -200,6 +206,7 @@ impl Screens {
 enum AnyScreen {
   Screen1(Screen1),
   Screen2(Screen2),
+  Screen3(Screen3),
 }
 
 
@@ -300,22 +307,123 @@ impl Screen1 {
   }
 }
 
-
 pub struct Screen2 {
+  cog_field : DisplayField<3>,  
+  sats_field  : DisplayField<8>,
+  units_field : DisplayField<3>,  
+  no_signal_blink: bool,  
+  bat_percent : u32,
+}
+
+impl Screen2 {
+  pub fn new() -> Self {
+    Screen2 {
+      cog_field: DisplayField::new(),
+      sats_field: DisplayField::new(),
+      units_field: DisplayField::new(),
+      no_signal_blink: false,
+      bat_percent: 0,
+    }
+  }
+
+  pub fn render_initial<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = DPixelColor>
+  {
+    write_field!(self.units_field, "COG").unwrap();
+    write_field!(self.cog_field, "000").unwrap();
+    layout.clear(display)?;
+    render_battery_top_centre(display, layout, self.bat_percent)?;
+    Result::Ok(())
+  }
+
+
+  pub fn render_update<D>(&mut self, layout: &Layout, display: &mut D )-> Result<(), D::Error>
+  where
+  D: DrawTarget<Color = DPixelColor>
+  {
+    render_battery_top_centre(display, layout, self.bat_percent)?;
+
+    layout.render_field(display, Point::new(CHAR_WIDTH*2,CHAR_HEIGHT/2), &mut self.sats_field)?;
+    layout.render_field(display, Point::new(CHAR_WIDTH*29,CHAR_HEIGHT/2), &mut self.units_field)?;
+
+    self.render_cog(layout, display, layout.char_point(1, 2))?;
+
+    Result::Ok(())
+  }
+
+  fn render_cog<D>(&mut self, layout: &Layout, display: &mut D,  loc: Point) -> Result<(), D::Error>
+  where
+    D: DrawTarget<Color = DPixelColor>
+  {
+    let mut cursor =  loc;
+    let nextc = Point::new(BIG_CHAR_WIDTH, 0);
+
+    if let Some(c) = self.cog_field.getdirtychar(0) {
+      cursor = layout.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
+    if let Some(c) = self.cog_field.getdirtychar(1) {
+      cursor = layout.write_big_text(display, cursor, c)?
+    } else {
+      cursor = cursor + nextc;
+    }
+    if let Some(c) = self.cog_field.getdirtychar(2) {
+      layout.write_big_text(display, cursor, c)?;
+    }
+    self.cog_field.clear_dirty();
+    Result::Ok(())
+  }
+
+
+  pub fn update_gga(&mut self, ogga: Option<GGA>) {
+    match ogga {
+      Option::None => {
+
+        if self.no_signal_blink {
+          self.sats_field.clear();
+        } else {
+          write_field!(self.sats_field, "Sats: 0").unwrap();
+        }
+        self.no_signal_blink = ! self.no_signal_blink;
+      },
+      Option::Some(gga) => {
+        write_field!(self.sats_field, "Sats: {:2}", gga.sat_in_use).unwrap();
+      }
+    }
+  }
+
+  pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
+    if let Some(course) = vtg.course {
+      write_field!(self.cog_field, "{:0>3}",course.degrees).unwrap();
+    } else {
+      write_field!(self.cog_field, "000").unwrap();
+    }
+  }
+
+  pub fn update_vbat(&mut self, mv: u16 ) {
+    self.bat_percent = battery_percent(mv as u32);
+  }
+}
+
+
+
+pub struct Screen3 {
   sats_field  : DisplayField<9>,
   hdop_field  : DisplayField<18>,  
   lat_field   : DisplayField<18>,  
   lng_field   : DisplayField<18>,
   speed_field : DisplayField<18>,  
   max_speed_field : DisplayField<18>,
-  vbat_field: DisplayField<6>,  
+  vbat_field: DisplayField<18>,  
 
   no_signal_blink: bool,  
 }
 
-impl Screen2 {
+impl Screen3 {
   pub fn new() -> Self {
-    Screen2 {
+    Screen3 {
       sats_field: DisplayField::new(),
       hdop_field: DisplayField::new(),
       lat_field: DisplayField::new(),
@@ -332,6 +440,13 @@ impl Screen2 {
   D: DrawTarget<Color = DPixelColor>
   {
     layout.clear(display)?;
+    write_field!(self.sats_field, "Sats:").unwrap();
+    write_field!(self.hdop_field, "Hdop:").unwrap();
+    write_field!(self.lat_field, "Lat :").unwrap();
+    write_field!(self.lng_field, "Long:").unwrap();
+    write_field!(self.speed_field, "Spd :").unwrap();
+    write_field!(self.max_speed_field, "Max :").unwrap();
+    write_field!(self.vbat_field, "Vbat:").unwrap();
     Result::Ok(())
   }
 
@@ -356,6 +471,7 @@ impl Screen2 {
     layout.render_field(display, cursor, &mut self.max_speed_field)?;
     cursor = cursor + down;
     layout.render_field(display, cursor, &mut self.vbat_field)?;
+
     Result::Ok(())
   }
 
@@ -385,7 +501,7 @@ impl Screen2 {
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
-    write_field!(self.lng_field, "Vbat: {}mV", mv).unwrap();
+    write_field!(self.vbat_field, "Vbat: {}mV", mv).unwrap();
   }
 }
 
