@@ -1,6 +1,6 @@
-A prototype GPS tracker and display, intended for on-water use.
+A prototype GPS tracker and interface, intended primarily as an on-water speed display.
 
-The [firmware](firmware) is written in rust. A water resistant enclosure is used with various 3d printed components.
+The [firmware](firmware) is written in rust. A water resistant enclosure is used with various 3d printed components. In order to ensure water resistance, the external switches magnetically couple to internal reed switches.
 
 ![](docs/IMG_0564.JPEG)
 ![](docs/IMG_0565.JPEG)
