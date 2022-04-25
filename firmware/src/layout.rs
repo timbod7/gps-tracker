@@ -337,19 +337,12 @@ impl Screen2 {
   {
     let mut cursor =  loc;
     let nextc = Point::new(BIG_CHAR_WIDTH, 0);
-
-    if let Some(c) = self.cog_field.getdirtychar(0) {
-      cursor = layout.write_big_text(display, cursor, c)?
-    } else {
-      cursor = cursor + nextc;
-    }
-    if let Some(c) = self.cog_field.getdirtychar(1) {
-      cursor = layout.write_big_text(display, cursor, c)?
-    } else {
-      cursor = cursor + nextc;
-    }
-    if let Some(c) = self.cog_field.getdirtychar(2) {
-      layout.write_big_text(display, cursor, c)?;
+    for i in 0..3 {
+      if let Some(c) = self.cog_field.getdirtychar(i) {
+        cursor = layout.write_big_text(display, cursor, c)?
+      } else {
+        cursor = cursor + nextc;
+      }
     }
     self.cog_field.clear_dirty();
     Result::Ok(())
@@ -361,7 +354,8 @@ impl Screen2 {
 
   pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
     if let Some(course) = vtg.course {
-      write_field!(self.cog_field, "{:0>3}",course.degrees).unwrap();
+      let cog = course.degrees.round() as u16;
+      write_field!(self.cog_field, "{:0>3}", cog).unwrap();
     } else {
       write_field!(self.cog_field, "---").unwrap();
     }
@@ -405,8 +399,8 @@ impl Screen3 {
 
     self.status_line.render(layout, display)?;
 
-    let mut cursor = Point::new(CHAR_WIDTH * 2, CHAR_HEIGHT/2);
-    let down = Point::new(0,  CHAR_HEIGHT*2);
+    let mut cursor = Point::new(CHAR_WIDTH * 2, CHAR_HEIGHT*3/2);
+    let down = Point::new(0,  CHAR_HEIGHT);
     cursor = cursor + down;
     layout.render_field(display, cursor, &mut self.hdop_field)?;
     cursor = cursor + down;
