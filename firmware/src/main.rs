@@ -29,7 +29,6 @@ use rtt_target::{rtt_init_print, rprintln};
 
 use nb::block;
 
-use crate::gps;
 use crate::gps::Gps;
 use crate::layout;
 use crate::debouncer;
@@ -183,27 +182,15 @@ type MyMono = DwtSystick<MONO_HZ>;
         _ => {}
       }
 
-      // Fetch the updated GGA and VTG values, if present
-      let mut oogga: Option<Option<nmea0183::GGA>> = Option::None;
-      let mut ovtg: Option<nmea0183::VTG> = Option::None;
-      let mut speed_stats = gps::SpeedStats::new();
+      // Fetch the updated gps values, if present
       
-      cx.shared.gps.lock( |gps| {
-        oogga = gps.take_gga();
-        ovtg = gps.take_vtg();
-        if ovtg.is_some() {
-          speed_stats = gps.speed_stats();
-        }
+      let ogps = cx.shared.gps.lock( |gps| {
+        gps.take()
       });
 
       let mut updated = false;
-      if let Some(ogga) = oogga {
-        screens.update_gga(ogga);
-        updated = true;
-      }
-
-      if let Some(vtg) = ovtg {
-        screens.update_vtg(vtg, &speed_stats);
+      if let Some(gps) = ogps {
+        screens.update_gps(&gps);
         updated = true;
       }
 

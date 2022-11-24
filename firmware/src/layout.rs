@@ -1,6 +1,5 @@
-use nmea0183::VTG;
 use embedded_graphics::primitives::Circle;
-use crate::u8writer::U8Writer;
+use crate::{u8writer::U8Writer, gps::GpsData};
 use embedded_graphics::{
   image::ImageRaw,
   mono_font::{mapping::StrGlyphMapping, DecorationDimensions, MonoFont, MonoTextStyle,MonoTextStyleBuilder},
@@ -12,9 +11,7 @@ use embedded_graphics::{
 use core::fmt::{Write};
 use core::str;
 use micromath::F32Ext;
-use nmea0183::{GGA};
 use crate::write_field;
-use crate::gps::SpeedStats;
 
 type DPixelColor = BinaryColor;
 const WHITE: DPixelColor = BinaryColor::On;
@@ -153,7 +150,7 @@ impl Screens {
       AnyScreen::Screen3(_) => self.screens = AnyScreen::Screen1(Screen1::new()),
 
     }
-    self.layout.clear(display);
+    self.layout.clear(display)?;
     self.render(display)
   }
 
@@ -168,19 +165,11 @@ impl Screens {
     }
   }
 
-  pub fn update_gga(&mut self, ogga: Option<GGA>) {
+  pub fn update_gps(&mut self, gps: &GpsData) {
     match &mut self.screens {
-      AnyScreen::Screen1(screen1) => screen1.update_gga(ogga),
-      AnyScreen::Screen2(screen2) => screen2.update_gga(ogga),
-      AnyScreen::Screen3(screen3) => screen3.update_gga(ogga),
-    }  
-  }
-
-  pub fn update_vtg(&mut self, vtg: VTG, stats: &SpeedStats) {
-    match &mut self.screens {
-      AnyScreen::Screen1(screen1) => screen1.update_vtg(vtg, stats),
-      AnyScreen::Screen2(screen2) => screen2.update_vtg(vtg, stats),
-      AnyScreen::Screen3(screen3) => screen3.update_vtg(vtg, stats),
+      AnyScreen::Screen1(screen1) => screen1.update_gps(gps),
+      AnyScreen::Screen2(screen2) => screen2.update_gps(gps),
+      AnyScreen::Screen3(screen3) => screen3.update_gps(gps),
     }  
   }
 
@@ -233,9 +222,9 @@ impl StatusLine {
   pub fn update_vbat(&mut self, mv: u16 ) {
     self.bat_percent = Some(battery_percent(mv as u32));
   }
-  
-  pub fn update_sats(&mut self, num_sats: u8) {
-    if num_sats == 0 {
+
+  pub fn update_gps(&mut self, gps: &GpsData) {
+    if gps.sat_in_use == 0 {
       self.no_signal_blink = ! self.no_signal_blink;
       if self.no_signal_blink {
         self.sats_field.clear();
@@ -296,12 +285,10 @@ impl Screen1 {
   }
 
 
-  pub fn update_gga(&mut self, ogga: Option<GGA>) {
-    self.status_line.update_sats( ogga.map_or(0, |gga| gga.sat_in_use));
-  }
+  pub fn update_gps(&mut self, gps: &GpsData) {
+    self.status_line.update_gps(gps);
+    write_field!(self.speed_field, "{:3}", (gps.speed * 10.0).round() as u32).unwrap();
 
-  pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
-    write_field!(self.speed_field, "{:3}", (vtg.speed.as_knots() * 10.0).round() as u32).unwrap();
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
@@ -348,13 +335,11 @@ impl Screen2 {
     Result::Ok(())
   }
 
-  pub fn update_gga(&mut self, ogga: Option<GGA>) {
-    self.status_line.update_sats( ogga.map_or(0, |gga| gga.sat_in_use));
-  }
+  pub fn update_gps(&mut self, gps: &GpsData) {
+    self.status_line.update_gps(gps);
 
-  pub fn update_vtg(&mut self, vtg: VTG, _stats: &SpeedStats) {
-    if let Some(course) = vtg.course {
-      let cog = course.degrees.round() as u16;
+    if let Some(course) = gps.course {
+      let cog = course.round() as u16;
       write_field!(self.cog_field, "{:0>3}", cog).unwrap();
     } else {
       write_field!(self.cog_field, "---").unwrap();
@@ -417,22 +402,22 @@ impl Screen3 {
     Result::Ok(())
   }
 
-  pub fn update_gga(&mut self, ogga: Option<GGA>) {
-    match ogga {
-      Option::None => {
-        self.status_line.update_sats(0);
-      },
-      Option::Some(gga) => {
-        write_field!(self.hdop_field, "Hdop: {:5.1}", gga.hdop).unwrap();
-        write_field!(self.lat_field, "Lat : {:12.6}", gga.latitude.as_f64()).unwrap();
-        write_field!(self.lng_field, "Long: {:12.6}", gga.longitude.as_f64()).unwrap();
-      }
+  pub fn update_gps(&mut self, gps: &GpsData) {
+    self.status_line.update_gps(gps);
+    write_field!(self.speed_field, "Spd : {:3.1}", gps.speed).unwrap();
+    write_field!(self.max_speed_field, "Max : {:3.1}", gps.max_speed).unwrap();
+    match gps.hdop {
+      Some(hdop) => write_field!(self.hdop_field, "Hdop: {:5.1}", hdop).unwrap(),
+      None =>  write_field!(self.hdop_field, "Hdop: -    ").unwrap()
     }
-  }
-
-  pub fn update_vtg(&mut self, vtg: VTG, stats: &SpeedStats) {
-    write_field!(self.speed_field, "Spd : {:3.1}", vtg.speed.as_knots()).unwrap();
-    write_field!(self.max_speed_field, "Max : {:3.1}", stats.max.as_knots()).unwrap();
+    match gps.latitude {
+      Some(latitude) => write_field!(self.lat_field, "Lat : {:12.6}", latitude).unwrap(),
+      None =>  write_field!(self.lat_field, "Lat : -           ").unwrap(),
+    }
+    match gps.longitude {
+      Some(longitude) => write_field!(self.lng_field, "Lat : {:12.6}", longitude).unwrap(),
+      None =>  write_field!(self.lng_field, "Lat : -           ").unwrap(),
+    }   
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
