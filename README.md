@@ -41,3 +41,34 @@ https://core-electronics.com.au/small-plastic-project-enclosure-weatherproof-wit
 
 [gps1]: https://www.team-blacksheep.com/products/prod:tbs_m82_gps
 
+
+# Firmware
+
+To build the code, you need the `thumbv7em-none-eabihf` rust target:
+
+```
+rustup target add thumbv7em-none-eabihf
+```
+
+and cargo embed:
+
+```
+cargo install cargo-embed
+```
+
+On linux, add udev rules to ensure the stmlink device is accessible to all users:
+
+```
+$ cat /etc/udev/rules.d/50-stm-stlink.rules 
+# STMicroelectronics ST-LINK/V2 
+ATTRS{idVendor}=="0483", ATTRS{idProduct}=="3748", TAG+="uaccess"
+$ sudo udevadm control --reload-rules
+```
+
+Then build and flash to the embedded board with:
+
+```
+cargo embed --release
+```
+
+
