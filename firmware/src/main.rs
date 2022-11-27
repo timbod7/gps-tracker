@@ -122,6 +122,11 @@ type MyMono = DwtSystick<MONO_HZ>;
       &clocks
     ).unwrap();
     serial.listen(serial::Event::Rxne);
+    let mut gps = Gps::new();
+
+    gps.init(&mut serial);
+
+
 
     // Configure the ADC for battery voltage
     let adc_config = adc::config::AdcConfig::default();
@@ -131,7 +136,7 @@ type MyMono = DwtSystick<MONO_HZ>;
     read_batv::spawn_after(250.millis()).unwrap();
 
     let shared = Shared {
-      gps: Gps::new(),
+      gps,
       vbat_mv: Some(0),
     };
 
