@@ -12,3 +12,5 @@ log_level = "Warn"
 
 [default.rtt]
 enabled = true
+log_enabled = true
+log_path = "logs/rtt"
