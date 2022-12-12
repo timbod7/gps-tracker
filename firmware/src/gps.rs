@@ -55,7 +55,18 @@ impl Gps {
   }
 
   pub fn init<S: serial::Write<u8> + serial::Read<u8> >(&mut self, serial: &mut S) {
+    loop {
+      match self.init0(serial) {
+        Ok(_) => break,
+        Err(_) => {}
+      }
+    }
+  }
+
+
+  pub fn init0<S: serial::Write<u8> + serial::Read<u8> >(&mut self, serial: &mut S) -> Result<(),()> {
       use ublox::*;
+      rprintln!("gps: init");
 
       // Configure to talk UBX
       rprintln!("gps: use UBX");
@@ -71,7 +82,7 @@ impl Gps {
         reserved5: 0,
     }.into_packet_bytes();
     self.serial_write(serial, &msg);
-    self.serial_wait_for_ack::<S,CfgPrtUart>(serial);
+    self.serial_wait_for_ack::<S,CfgPrtUart>(serial)?;
 
     // Set the measurement/nav rate to 2 Hz
     rprintln!("gps: set rate to 2Hz");
@@ -82,19 +93,21 @@ impl Gps {
             }
             .into_packet_bytes();
     self.serial_write(serial, &msg);
-    self.serial_wait_for_ack::<S,CfgRate>(serial);
+    self.serial_wait_for_ack::<S,CfgRate>(serial)?;
 
     // Enable the NavPosVelTime packet
     rprintln!("gps: enable NavPosVelTime");
     let msg = CfgMsgAllPortsBuilder::set_rate_for::<NavPosVelTime>([0, 1, 0, 0, 0, 0])
                 .into_packet_bytes();
     self.serial_write(serial, &msg);
-    self.serial_wait_for_ack::<S,CfgMsgAllPorts>(serial);
+    self.serial_wait_for_ack::<S,CfgMsgAllPorts>(serial)?;
 
     // Send a packet request for the MonVer packet
     rprintln!("gps: request MonVer");
     let msg = UbxPacketRequest::request_for::<MonVer>().into_packet_bytes();
     self.serial_write(serial, &msg);
+
+    Ok(())
   }
 
   fn serial_write<S: serial::Write<u8>>(&mut self, serial: &mut S, msg: &[u8]) {
@@ -104,13 +117,22 @@ impl Gps {
     block!(serial.flush());
   }
 
-  fn serial_wait_for_ack<S: serial::Read<u8>, T: ublox::UbxPacketMeta>(&mut self, serial: &mut S) {
-    let mut found_ack = false;
-    while !found_ack {
+  fn serial_wait_for_ack<S: serial::Read<u8>, T: ublox::UbxPacketMeta>(&mut self, serial: &mut S) -> Result<(), ()> {
+
+    #[derive(PartialEq)]
+    enum State {
+      Waiting,
+      Found,
+      Failed
+    }
+
+    let mut state = State::Waiting;
+    while state == State::Waiting {
       let ec = block!(serial.read());
       match ec {
         Result::Err(_e) => {
           rprintln!("rx fail waiting for ack");
+          state = State::Failed;
         },
         Result::Ok(c) => {
           let buf = [c];
@@ -119,16 +141,19 @@ impl Gps {
           match it.next() {
               Some(Ok(ublox::PacketRef::AckAck(ack))) => {
                 if ack.class() == T::CLASS && ack.msg_id() == T::ID {
-                  found_ack = true;
+                  state = State::Found;
                 } else {
                   rprintln!("ignoring other ack");
+                  state = State::Failed;
                 }
               }
               Some(Ok(_)) => {
                 rprintln!("ignoring other message");
+                state = State::Failed;
               }
               Some(Err(_)) => {
                 rprintln!("ignoring parse error");
+                state = State::Failed;
               }
               None => {break;}
             }
@@ -136,7 +161,7 @@ impl Gps {
         },
       }
     }
-    rprintln!("gps: received ack");
+    if state == State::Found { Ok(()) } else {Err(())}
   }
 
   pub fn parse_clear(&mut self) {
