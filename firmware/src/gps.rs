@@ -4,14 +4,20 @@ use embedded_hal::serial;
 use nb::block;
 
 
-const SPEED_AVG_SAMPLES: usize = 5;
+// How often we receive position data
+const GPS_MESSAGE_MS: u16 = 500;
+
+// How many speed samples we record to get an
+// average over 10 seconds
+const SPEED_AVG_SAMPLES: usize = 10 * 1000 / (GPS_MESSAGE_MS as usize);
 
 pub struct GpsData {
   pub sat_in_use: u8,
   pub course: Option<f32>,
   pub speed: f32,
-  pub avg_speed: f32,
   pub max_speed: f32,
+  pub avg_speed: f32,
+  pub max_avg_speed: f32,
   pub hdop: Option<f32>,
   pub latitude: Option<f32>,
   pub longitude: Option<f32>,
@@ -24,14 +30,15 @@ pub struct Gps {
   updated: Option<()>,  // atomic bool???
 
   sat_in_use: u8,
-  speed: f32,
   course: Option<f32>,
   hdop: Option<f32>,
   latitude: Option<f32>,
   longitude: Option<f32>,
-  avg_speed_samples: [f32; SPEED_AVG_SAMPLES],
-  avg_i: usize,
+  speed_samples: AverageBuffer<SPEED_AVG_SAMPLES>,
+  speed: f32,
+  avg_speed: f32,
   max_speed: f32,
+  max_avg_speed: f32,
 }
 
 impl Gps {
@@ -43,14 +50,15 @@ impl Gps {
       parser,
       updated: Option::Some(()),
       sat_in_use : 0,
-      speed: 0f32,
       course: None,
       hdop: None,
       latitude: None,
       longitude: None,
-      avg_speed_samples: [0f32; SPEED_AVG_SAMPLES],
-      avg_i: 0,
+      speed_samples: AverageBuffer::new(),
+      speed: 0f32,
       max_speed: 0f32,
+      avg_speed: 0f32,
+      max_avg_speed: 0f32,
     }
   }
 
@@ -87,7 +95,7 @@ impl Gps {
     // Set the measurement/nav rate to 2 Hz
     rprintln!("gps: set rate to 2Hz");
     let msg = CfgRateBuilder {
-                measure_rate_ms: 500,
+                measure_rate_ms: GPS_MESSAGE_MS,
                 nav_rate: 1,
                 time_ref: AlignmentToReferenceTime::Utc,
             }
@@ -189,13 +197,16 @@ impl Gps {
               self.latitude = None;
               self.longitude = None;
               self.course = None;
-              self.avg_speed_samples = [0f32; SPEED_AVG_SAMPLES];
+              self.speed_samples = AverageBuffer::new();
             }
             self.speed = knots_from_raw(sol.ground_speed_raw());
-            self.avg_speed_samples[self.avg_i] = self.speed;
-            self.avg_i = (self.avg_i + 1) % SPEED_AVG_SAMPLES;
             if self.speed > self.max_speed {
               self.max_speed = self.speed;
+            }
+            self.speed_samples.add(self.speed);
+            self.avg_speed = self.speed_samples.avg_value();
+            if self.avg_speed > self.max_avg_speed {
+              self.max_avg_speed = self.avg_speed;
             }
             self.updated = Some(());
           }
@@ -221,11 +232,6 @@ impl Gps {
   pub fn take(&mut self) -> Option<GpsData> {
     let updated = self.updated.take();
     if let Some(()) = updated {
-      let mut total = 0f32;
-      for i in 0..SPEED_AVG_SAMPLES {
-        total += self.avg_speed_samples[i];
-      }
-
       Some(GpsData {
         sat_in_use: self.sat_in_use, 
         course: self.course,
@@ -233,8 +239,9 @@ impl Gps {
         latitude: self.latitude,
         longitude: self.longitude,
         speed: self.speed, 
-        avg_speed: total / SPEED_AVG_SAMPLES as f32, 
+        avg_speed: self.avg_speed, 
         max_speed: self.max_speed,
+        max_avg_speed: self.max_avg_speed,
       })
     } else {
       None
@@ -330,4 +337,24 @@ fn heading_from_raw(raw: i32) -> f32{
 
 fn knots_from_raw(raw: u32) -> f32 {
   raw as f32 * 1e-3 * 1.943844
+}
+
+pub struct AverageBuffer<const N: usize> {
+  samples: [f32; N],
+  si: usize,
+}
+
+impl<const N: usize> AverageBuffer<N> {
+  pub fn new() -> Self {
+    AverageBuffer { samples: [0f32; N], si: 0 }
+  }
+
+  pub fn add(&mut self, v: f32) {
+    self.samples[self.si] = v;
+    self.si = (self.si + 1) % N;
+  }
+
+  pub fn avg_value(&self) -> f32 {
+    self.samples.iter().fold(0f32, |v1,v2| v1 + v2) / (N as f32)
+  }
 }
