@@ -20,8 +20,6 @@ pub struct GpsData {
 pub struct Gps {
 
   parser: ublox::Parser<GpsBuffer>,
-  // dbuf: [u8; 32],
-  // dbufi: usize,
 
   updated: Option<()>,  // atomic bool???
 
@@ -43,8 +41,6 @@ impl Gps {
 
     Gps{
       parser,
-      // dbuf: [0; 32],
-      // dbufi: 0,
       updated: Option::Some(()),
       sat_in_use : 0,
       speed: 0f32,
@@ -99,8 +95,6 @@ impl Gps {
     rprintln!("gps: request MonVer");
     let msg = UbxPacketRequest::request_for::<MonVer>().into_packet_bytes();
     self.serial_write(serial, &msg);
-
-    // self.serial_test_run(serial);
   }
 
   fn serial_write<S: serial::Write<u8>>(&mut self, serial: &mut S, msg: &[u8]) {
@@ -145,20 +139,6 @@ impl Gps {
     rprintln!("gps: received ack");
   }
 
-  fn serial_test_run<S: serial::Read<u8>>(&mut self, serial: &mut S) {
-      loop {
-      let ec = block!(serial.read());
-      match ec {
-        Result::Err(_e) => {
-          rprintln!("rx fail waiting for packet");
-        },
-        Result::Ok(c) => {
-          self.parse_u8(c);
-        },
-      }
-    }
-  }
-
   pub fn parse_clear(&mut self) {
     rprintln!("gps: parse clear");
     let buf = GpsBuffer::new();
@@ -166,14 +146,6 @@ impl Gps {
   }
 
   pub fn parse_u8(&mut self, received: u8) {
-    
-    // self.dbuf[self.dbufi] = received;
-    // self.dbufi += 1;
-    // if (self.dbufi == self.dbuf.len()) {
-    //   rprintln!("rx: {:?}", self.dbuf);
-    //   self.dbufi = 0;
-    // }
-
     let nb = [received; 1];
 
     let mut it = self.parser.consume(&nb);

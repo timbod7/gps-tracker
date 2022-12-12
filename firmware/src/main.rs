@@ -65,7 +65,7 @@ type MyMono = DwtSystick<MONO_HZ>;
   #[init()]
   fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
     rtt_init_print!();
-    rprintln!("Starting init");
+    rprintln!("init: START");
 
     // Take ownership over the raw flash and rcc devices and convert them into the corresponding
     // HAL structs
@@ -121,12 +121,14 @@ type MyMono = DwtSystick<MONO_HZ>;
       9600.bps(), 
       &clocks
     ).unwrap();
-    serial.listen(serial::Event::Rxne);
     let mut gps = Gps::new();
 
+    rprintln!("init: gps");
+
     gps.init(&mut serial);
+    serial.listen(serial::Event::Rxne);
 
-
+    rprintln!("init: adc");
 
     // Configure the ADC for battery voltage
     let adc_config = adc::config::AdcConfig::default();
@@ -149,8 +151,8 @@ type MyMono = DwtSystick<MONO_HZ>;
       led,
     };
 
+    rprintln!("init: DONE");
     (shared, local, init::Monotonics(mono))
-
   }
 
   #[task(binds = USART1, shared=[gps], local=[serial])]
@@ -169,6 +171,7 @@ type MyMono = DwtSystick<MONO_HZ>;
 
   #[idle(shared=[gps, vbat_mv], local=[key,display])]
   fn idle(mut cx: idle::Context) -> ! {
+    rprintln!("idle0: START");
     let mut screens = layout::Screens::new();
     let mut debounce = debouncer::Debouncer::new(3);
 
@@ -215,6 +218,7 @@ type MyMono = DwtSystick<MONO_HZ>;
 
   #[task(local=[adc,vbatin,led], shared=[vbat_mv])]
   fn read_batv(mut cx:  read_batv::Context) {
+    rprintln!("read_batv");
 
     // Read the pin voltage, and write it to the shared variable
     let sample = cx.local.adc.convert(cx.local.vbatin, adc::config::SampleTime::Cycles_480);
