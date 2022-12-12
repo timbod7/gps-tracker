@@ -15,6 +15,8 @@ extern crate panic_rtt_target;
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI0])]
 mod app {
 
+use core::alloc::Layout;
+
 use embedded_hal::spi::{Mode, Phase, Polarity};
 use stm32f4xx_hal::{
   gpio::{NoPin},
@@ -45,6 +47,7 @@ const MONO_HZ: u32 = 84_000_000; // 8 MHz
 
 #[monotonic(binds = SysTick, default = true)]
 type MyMono = DwtSystick<MONO_HZ>;
+type MyDuration = <dwt_systick_monotonic::DwtSystick<MONO_HZ> as rtic::Monotonic>::Duration;
 
   #[shared]
   struct Shared {
@@ -80,7 +83,7 @@ type MyMono = DwtSystick<MONO_HZ>;
     let mut dcb = cx.core.DCB;
     let dwt = cx.core.DWT;
     let systick = cx.core.SYST;
-    let mono = DwtSystick::new(&mut dcb, dwt, systick, MONO_HZ);
+    let mono: MyMono = DwtSystick::new(&mut dcb, dwt, systick, MONO_HZ);
 
     // Enable debugging in sleep modes so that stlink stays alive during wfi etc._
     // Remove this if/when power consumption is an issue.
@@ -95,7 +98,8 @@ type MyMono = DwtSystick<MONO_HZ>;
     let gpioc = cx.device.GPIOC.split();
     let key   = gpioa.pa0.into_pull_up_input();
     let vbatin   = gpioa.pa1.into_analog();
-    let led   = gpioc.pc13.into_push_pull_output();
+    let mut led   = gpioc.pc13.into_push_pull_output();
+
 
     // configure the display driver
     let cs = gpioa.pa4.into_push_pull_output();
@@ -109,8 +113,15 @@ type MyMono = DwtSystick<MONO_HZ>;
         &clocks,
     );
 
+
     let delay = cx.device.TIM5.delay_us(&clocks);
-    let display = memory_display::new_ls027b7dh01(spi, cs, delay);
+    let mut display = memory_display::new_ls027b7dh01(spi, cs, delay);
+    let mut layout  = crate::layout::Layout::new();
+    layout.write_text(&mut display, layout.char_point(0,0), "booting...").unwrap();
+    display.refresh();
+
+    // Why is this nessary after power up
+    cortex_m::asm::delay(16_000_000);
 
     // Configure the serial port for GPS data
     let tx = gpioa.pa9.into_alternate();
@@ -126,9 +137,8 @@ type MyMono = DwtSystick<MONO_HZ>;
     rprintln!("init: gps");
 
     gps.init(&mut serial);
+    led.set_low();
     serial.listen(serial::Event::Rxne);
-
-    rprintln!("init: adc");
 
     // Configure the ADC for battery voltage
     let adc_config = adc::config::AdcConfig::default();
@@ -141,6 +151,8 @@ type MyMono = DwtSystick<MONO_HZ>;
       gps,
       vbat_mv: Some(0),
     };
+
+    layout.clear(&mut display).unwrap();
 
     let local = Local {
       serial,
@@ -227,6 +239,7 @@ type MyMono = DwtSystick<MONO_HZ>;
 
     cx.local.led.toggle();
     read_batv::spawn_after(250.millis()).unwrap();
-  }
+  }  
 }
+
 

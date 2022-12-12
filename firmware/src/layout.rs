@@ -136,7 +136,7 @@ impl Screens {
   pub fn new() -> Self {
     Screens {
       layout : Layout:: new(),
-      screens: AnyScreen::Screen1(Screen1::new()),
+      screens: AnyScreen::Speed(SpeedScreen::new()),
     }
   }
 
@@ -145,9 +145,9 @@ impl Screens {
   D: DrawTarget<Color = DPixelColor>
   {
     match &mut self.screens {
-      AnyScreen::Screen1(_) => self.screens = AnyScreen::Screen2(Screen2::new()),
-      AnyScreen::Screen2(_) => self.screens = AnyScreen::Screen3(Screen3::new()),
-      AnyScreen::Screen3(_) => self.screens = AnyScreen::Screen1(Screen1::new()),
+      AnyScreen::Speed(_) => self.screens = AnyScreen::Cog(CogScreen::new()),
+      AnyScreen::Cog(_) => self.screens = AnyScreen::Misc(MiscScreen::new()),
+      AnyScreen::Misc(_) => self.screens = AnyScreen::Speed(SpeedScreen::new()),
 
     }
     self.layout.clear(display)?;
@@ -159,33 +159,33 @@ impl Screens {
   D: DrawTarget<Color = DPixelColor>
   {
     match &mut self.screens {
-      AnyScreen::Screen1(screen1) => screen1.render(&self.layout, display),
-      AnyScreen::Screen2(screen2) => screen2.render(&self.layout, display),
-      AnyScreen::Screen3(screen3) => screen3.render(&self.layout, display),
+      AnyScreen::Speed(screen1) => screen1.render(&self.layout, display),
+      AnyScreen::Cog(screen2) => screen2.render(&self.layout, display),
+      AnyScreen::Misc(screen3) => screen3.render(&self.layout, display),
     }
   }
 
   pub fn update_gps(&mut self, gps: &GpsData) {
     match &mut self.screens {
-      AnyScreen::Screen1(screen1) => screen1.update_gps(gps),
-      AnyScreen::Screen2(screen2) => screen2.update_gps(gps),
-      AnyScreen::Screen3(screen3) => screen3.update_gps(gps),
+      AnyScreen::Speed(screen1) => screen1.update_gps(gps),
+      AnyScreen::Cog(screen2) => screen2.update_gps(gps),
+      AnyScreen::Misc(screen3) => screen3.update_gps(gps),
     }  
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
     match &mut self.screens {
-      AnyScreen::Screen1(screen1) => screen1.update_vbat(mv),
-      AnyScreen::Screen2(screen2) => screen2.update_vbat(mv),
-      AnyScreen::Screen3(screen3) => screen3.update_vbat(mv),
+      AnyScreen::Speed(screen1) => screen1.update_vbat(mv),
+      AnyScreen::Cog(screen2) => screen2.update_vbat(mv),
+      AnyScreen::Misc(screen3) => screen3.update_vbat(mv),
     }  
   }
 }
 
 enum AnyScreen {
-  Screen1(Screen1),
-  Screen2(Screen2),
-  Screen3(Screen3),
+  Speed(SpeedScreen),
+  Cog(CogScreen),
+  Misc(MiscScreen),
 }
 
 pub struct StatusLine {
@@ -237,14 +237,14 @@ impl StatusLine {
 
 
 
-pub struct Screen1 {
+pub struct SpeedScreen {
   status_line: StatusLine,
   speed_field : DisplayField<3>,  
 }
 
-impl Screen1 {
+impl SpeedScreen {
   pub fn new() -> Self {
-    Screen1 {
+    SpeedScreen {
       status_line: StatusLine::new("kt"),
       speed_field: DisplayField::new(),
     }
@@ -296,14 +296,14 @@ impl Screen1 {
   }
 }
 
-pub struct Screen2 {
+pub struct CogScreen {
   status_line: StatusLine,
   cog_field : DisplayField<3>,  
 }
 
-impl Screen2 {
+impl CogScreen {
   pub fn new() -> Self {
-    Screen2 {
+    CogScreen {
       status_line: StatusLine::new("COG"),
       cog_field: DisplayField::new(),
     }
@@ -353,7 +353,7 @@ impl Screen2 {
 
 
 
-pub struct Screen3 {
+pub struct MiscScreen {
   status_line: StatusLine,
   hdop_field  : DisplayField<18>,  
   lat_field   : DisplayField<18>,  
@@ -363,9 +363,9 @@ pub struct Screen3 {
   vbat_field: DisplayField<18>,  
 }
 
-impl Screen3 {
+impl MiscScreen {
   pub fn new() -> Self {
-    Screen3 {
+    MiscScreen {
       status_line: StatusLine::new(""),
       hdop_field: DisplayField::from_str("Hdop:"),
       lat_field: DisplayField::from_str("Lat :"),
