@@ -9,6 +9,11 @@ use micromath::F32Ext;
 use crate::write_field;
 use crate::layout::{Layout, DisplayField, DPixelColor, CHAR_WIDTH, CHAR_HEIGHT, BIG_CHAR_WIDTH};
 
+pub enum Update<'a> {
+  Gps(&'a GpsData),
+  Vbat(u16),
+}
+
 pub struct Screens {
   layout: Layout,
   screens: AnyScreen,
@@ -47,18 +52,18 @@ impl Screens {
   }
 
   pub fn update_gps(&mut self, gps: &GpsData) {
-    match &mut self.screens {
-      AnyScreen::Speed(screen1) => screen1.update_gps(gps),
-      AnyScreen::Cog(screen2) => screen2.update_gps(gps),
-      AnyScreen::Misc(screen3) => screen3.update_gps(gps),
-    }  
+    self.update(&Update::Gps(gps)); 
   }
 
   pub fn update_vbat(&mut self, mv: u16 ) {
+    self.update(&Update::Vbat(mv));  
+  }
+
+  pub fn update(&mut self, update: &Update) {
     match &mut self.screens {
-      AnyScreen::Speed(screen1) => screen1.update_vbat(mv),
-      AnyScreen::Cog(screen2) => screen2.update_vbat(mv),
-      AnyScreen::Misc(screen3) => screen3.update_vbat(mv),
+      AnyScreen::Speed(screen1) => screen1.update(update),
+      AnyScreen::Cog(screen2) => screen2.update(update),
+      AnyScreen::Misc(screen3) => screen3.update(update),
     }  
   }
 }
@@ -100,6 +105,13 @@ impl StatusLine {
     Result::Ok(())
   }
 
+  pub fn update(&mut self, update: &Update) {
+    match update {
+      Update::Gps(gps) => self.update_gps(gps),
+      Update::Vbat(vbat) => self.update_vbat(*vbat),
+    }
+  }
+
   pub fn update_vbat(&mut self, mv: u16 ) {
     self.bat_percent = Some(battery_percent(mv as u32));
   }
@@ -115,7 +127,6 @@ impl StatusLine {
     }
   }
 }
-
 
 
 pub struct SpeedScreen {
@@ -165,15 +176,17 @@ impl SpeedScreen {
     Result::Ok(())
   }
 
-
-  pub fn update_gps(&mut self, gps: &GpsData) {
-    self.status_line.update_gps(gps);
-    write_field!(self.speed_field, "{:3}", (gps.speed * 10.0).round() as u32).unwrap();
-
+  pub fn update(&mut self, update: &Update) {
+    self.status_line.update(update);
+    match update {
+      Update::Gps(gps) => self.update_gps(gps),
+      _ => (),
+    }
   }
 
-  pub fn update_vbat(&mut self, mv: u16 ) {
-    self.status_line.update_vbat(mv);
+  fn update_gps(&mut self, gps: &GpsData) {
+    write_field!(self.speed_field, "{:3}", (gps.speed * 10.0).round() as u32).unwrap();
+
   }
 }
 
@@ -216,7 +229,15 @@ impl CogScreen {
     Result::Ok(())
   }
 
-  pub fn update_gps(&mut self, gps: &GpsData) {
+  pub fn update(&mut self, update: &Update) {
+    self.status_line.update(update);
+    match update {
+      Update::Gps(gps) => self.update_gps(gps),
+      _ => (),
+    }
+  }
+
+  fn update_gps(&mut self, gps: &GpsData) {
     self.status_line.update_gps(gps);
 
     if let Some(course) = gps.course {
@@ -225,10 +246,6 @@ impl CogScreen {
     } else {
       write_field!(self.cog_field, "---").unwrap();
     }
-  }
-
-  pub fn update_vbat(&mut self, mv: u16 ) {
-    self.status_line.update_vbat(mv);
   }
 }
 
@@ -283,7 +300,15 @@ impl MiscScreen {
     Result::Ok(())
   }
 
-  pub fn update_gps(&mut self, gps: &GpsData) {
+  pub fn update(&mut self, update: &Update) {
+    self.status_line.update(update);
+    match update {
+      Update::Gps(gps) => self.update_gps(gps),
+      Update::Vbat(mv) => self.update_vbat(*mv),
+    }
+  }
+
+  fn update_gps(&mut self, gps: &GpsData) {
     self.status_line.update_gps(gps);
     write_field!(self.speed_field, "Spd : {:3.1}", gps.speed).unwrap();
     write_field!(self.max_speed_field, "Max : {:3.1}", gps.max_speed).unwrap();
@@ -301,7 +326,7 @@ impl MiscScreen {
     }   
   }
 
-  pub fn update_vbat(&mut self, mv: u16 ) {
+  fn update_vbat(&mut self, mv: u16 ) {
     self.status_line.update_vbat(mv);
     write_field!(self.vbat_field, "Vbat: {}mV", mv).unwrap();
   }
