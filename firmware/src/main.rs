@@ -7,6 +7,7 @@ mod layout;
 mod gps;
 mod debouncer;
 mod memory_display;
+mod screens;
 
 // set the panic handler
 extern crate panic_rtt_target;
@@ -15,7 +16,6 @@ extern crate panic_rtt_target;
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI0])]
 mod app {
 
-use core::alloc::Layout;
 
 use embedded_hal::spi::{Mode, Phase, Polarity};
 use stm32f4xx_hal::{
@@ -31,8 +31,7 @@ use rtt_target::{rtt_init_print, rprintln};
 
 use nb::block;
 
-use crate::gps::Gps;
-use crate::layout;
+use crate::{gps::Gps, screens};
 use crate::debouncer;
 use crate::memory_display;
 
@@ -47,7 +46,6 @@ const MONO_HZ: u32 = 84_000_000; // 8 MHz
 
 #[monotonic(binds = SysTick, default = true)]
 type MyMono = DwtSystick<MONO_HZ>;
-type MyDuration = <dwt_systick_monotonic::DwtSystick<MONO_HZ> as rtic::Monotonic>::Duration;
 
   #[shared]
   struct Shared {
@@ -116,7 +114,7 @@ type MyDuration = <dwt_systick_monotonic::DwtSystick<MONO_HZ> as rtic::Monotonic
 
     let delay = cx.device.TIM5.delay_us(&clocks);
     let mut display = memory_display::new_ls027b7dh01(spi, cs, delay);
-    let mut layout  = crate::layout::Layout::new();
+    let layout  = crate::layout::Layout::new();
     layout.write_text(&mut display, layout.char_point(0,0), "booting...").unwrap();
     display.refresh();
 
@@ -184,7 +182,7 @@ type MyDuration = <dwt_systick_monotonic::DwtSystick<MONO_HZ> as rtic::Monotonic
   #[idle(shared=[gps, vbat_mv], local=[key,display])]
   fn idle(mut cx: idle::Context) -> ! {
     rprintln!("idle0: START");
-    let mut screens = layout::Screens::new();
+    let mut screens = screens::Screens::new();
     let mut debounce = debouncer::Debouncer::new(3);
 
     screens.render(cx.local.display).unwrap();
