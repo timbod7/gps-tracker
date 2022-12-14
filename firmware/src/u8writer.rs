@@ -1,8 +1,6 @@
 #[allow(dead_code)]
-
 use core::fmt::{self};
 use core::str;
-
 
 pub struct U8Writer<'a> {
     buf: &'a mut [u8],
@@ -15,9 +13,9 @@ impl<'a> U8Writer<'a> {
     }
 
     pub fn fill(&mut self, v: u8) {
-      for i in self.cursor..self.buf.len() {
-        self.buf[i] = v;
-      }
+        for i in self.cursor..self.buf.len() {
+            self.buf[i] = v;
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -59,4 +57,3 @@ impl fmt::Write for U8Writer<'_> {
         Ok(())
     }
 }
-
