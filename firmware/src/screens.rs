@@ -24,8 +24,8 @@ impl Screens {
     pub fn new() -> Self {
         Screens {
             layout: Layout::new(),
-            //screens: AnyScreen::Speed(SpeedScreen::new()),
-            screens: AnyScreen::SpeedDetails(SpeedDetailsScreen::new()),
+            screens: AnyScreen::Speed(SpeedScreen::new()),
+            //screens: AnyScreen::SpeedDetails(SpeedDetailsScreen::new()),
         }
     }
 
@@ -84,7 +84,7 @@ enum AnyScreen {
 
 pub struct StatusLine {
     sats_field: DisplayField<8>,
-    no_signal_blink: bool,
+    sats_blink: bool,
     bat_percent: Option<u32>,
     label: DisplayField<4>,
 }
@@ -93,7 +93,7 @@ impl StatusLine {
     pub fn new(label: &str) -> Self {
         StatusLine {
             sats_field: DisplayField::new(),
-            no_signal_blink: false,
+            sats_blink: false,
             bat_percent: None,
             label: DisplayField::from_str(label),
         }
@@ -133,13 +133,11 @@ impl StatusLine {
     }
 
     pub fn update_gps(&mut self, gps: &GpsData) {
-        if gps.sat_in_use == 0 {
-            self.no_signal_blink = !self.no_signal_blink;
-            if self.no_signal_blink {
-                self.sats_field.clear();
-            } else {
-                write_field!(self.sats_field, "Sats: 0").unwrap();
-            }
+        self.sats_blink = !self.sats_blink;
+        if gps.sat_in_use == 0 && self.sats_blink {
+            self.sats_field.clear();
+        } else {
+            write_field!(self.sats_field, "Sats: {}", gps.sat_in_use).unwrap();
         }
     }
 }

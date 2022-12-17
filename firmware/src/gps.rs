@@ -65,6 +65,7 @@ impl Gps {
                 Ok(_) => break,
                 Err(_) => {}
             }
+            cortex_m::asm::delay(8_000_000);
         }
     }
 
