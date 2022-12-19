@@ -153,9 +153,6 @@ mod app {
             .unwrap();
         display.refresh();
 
-        // Why is this nessary after power up
-        cortex_m::asm::delay(16_000_000);
-
         // Configure the serial port for GPS data
         let tx = gpioa.pa9.into_alternate();
         let rx = gpioa.pa10.into_alternate();
@@ -218,7 +215,7 @@ mod app {
     fn idle(mut cx: idle::Context) -> ! {
         rprintln!("idle0: START");
         let mut screens = screens::Screens::new();
-        let mut debounce = debouncer::Debouncer::new(3);
+        let mut debounce = debouncer::Debouncer::new(2);
 
         screens.render(cx.local.display).unwrap();
         screens.update_vbat(0);

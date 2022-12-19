@@ -61,11 +61,17 @@ impl Gps {
 
     pub fn init<S: serial::Write<u8> + serial::Read<u8>>(&mut self, serial: &mut S) {
         loop {
+            // Wait a bit to give the GPS some time for a cold start
+            cortex_m::asm::delay(16_000_000);
+
             match self.init0(serial) {
                 Ok(_) => break,
                 Err(_) => {}
             }
-            cortex_m::asm::delay(8_000_000);
+
+            // Reset the parser
+            let buf = GpsBuffer::new();
+            self.parser = ublox::Parser::new(buf);
         }
     }
 
@@ -77,7 +83,7 @@ impl Gps {
         rprintln!("gps: init");
 
         // Configure to talk UBX
-        rprintln!("gps: use UBX");
+        rprintln!("gps: use UBX 1/2");
         let msg = CfgPrtUartBuilder {
             portid: UartPortId::Uart1,
             reserved0: 0,
@@ -91,6 +97,17 @@ impl Gps {
         }
         .into_packet_bytes();
         self.serial_write(serial, &msg);
+
+        // Wait a bit
+        cortex_m::asm::delay(16_000_000);
+        // Throw away rx contents
+        let _ = serial.read();
+
+        // Send the message again
+        rprintln!("gps: use UBX 2/2");
+        self.serial_write(serial, &msg);
+
+        rprintln!("gps: awaiting ack for UBX");
         self.serial_wait_for_ack::<S, CfgPrtUart>(serial)?;
 
         // Set the measurement/nav rate to 2 Hz
