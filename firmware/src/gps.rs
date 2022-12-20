@@ -6,6 +6,10 @@ use rtt_target::rprintln;
 const GPS_MESSAGE_MS: u16 = 500;
 
 // How many speed samples we record to get an
+// average over a second
+const SPEED_SAMPLES: usize = 1000 / (GPS_MESSAGE_MS as usize);
+
+// How many speed samples we record to get an
 // average over 10 seconds
 const SPEED_AVG_SAMPLES: usize = 10 * 1000 / (GPS_MESSAGE_MS as usize);
 
@@ -31,7 +35,8 @@ pub struct Gps {
     hdop: Option<f32>,
     latitude: Option<f32>,
     longitude: Option<f32>,
-    speed_samples: AverageBuffer<SPEED_AVG_SAMPLES>,
+    speed_samples: AverageBuffer<SPEED_SAMPLES>,
+    avg_speed_samples: AverageBuffer<SPEED_AVG_SAMPLES>,
     speed: f32,
     avg_speed: f32,
     max_speed: f32,
@@ -52,6 +57,7 @@ impl Gps {
             latitude: None,
             longitude: None,
             speed_samples: AverageBuffer::new(),
+            avg_speed_samples: AverageBuffer::new(),
             speed: 0f32,
             max_speed: 0f32,
             avg_speed: 0f32,
@@ -224,16 +230,18 @@ impl Gps {
                         self.longitude = None;
                         self.course = None;
                         self.speed_samples = AverageBuffer::new();
+                        self.avg_speed_samples = AverageBuffer::new();
                     }
-                    self.speed = knots_from_raw(sol.ground_speed_raw());
-                    if self.speed > self.max_speed {
-                        self.max_speed = self.speed;
-                    }
-                    self.speed_samples.add(self.speed);
-                    self.avg_speed = self.speed_samples.avg_value();
-                    if self.avg_speed > self.max_avg_speed {
-                        self.max_avg_speed = self.avg_speed;
-                    }
+                    let raw_speed = knots_from_raw(sol.ground_speed_raw());
+
+                    self.speed_samples.add(raw_speed);
+                    self.speed = self.speed_samples.avg_value();
+                    update_max(&mut self.max_speed, self.speed);
+
+                    self.avg_speed_samples.add(raw_speed);
+                    self.avg_speed = self.avg_speed_samples.avg_value();
+                    update_max(&mut self.max_avg_speed, self.avg_speed);
+
                     self.updated = Some(());
                 }
                 Some(Ok(ublox::PacketRef::MonVer(monver))) => {
@@ -276,6 +284,12 @@ impl Gps {
         } else {
             None
         }
+    }
+}
+
+fn update_max(max: &mut f32, v: f32) {
+    if v > *max {
+        *max = v;
     }
 }
 
