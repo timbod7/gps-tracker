@@ -225,7 +225,7 @@ mod app {
         loop {
             let key = cx.local.key.is_high();
             match debounce.next(key) {
-                Option::Some(debouncer::Transition::ToLow) => {
+                Option::Some(debouncer::Transition::ToHigh) => {
                     screens.next_page(cx.local.display).unwrap();
                     cx.local.display.refresh();
                 }
