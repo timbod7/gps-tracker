@@ -13,6 +13,7 @@ const SPEED_SAMPLES: usize = 1000 / (GPS_MESSAGE_MS as usize);
 // average over 10 seconds
 const SPEED_AVG_SAMPLES: usize = 10 * 1000 / (GPS_MESSAGE_MS as usize);
 
+#[derive(Clone)]
 pub struct GpsData {
     pub sat_in_use: u8,
     pub course: Option<f32>,
@@ -20,27 +21,32 @@ pub struct GpsData {
     pub max_speed: f32,
     pub avg_speed: f32,
     pub max_avg_speed: f32,
+    pub distance_m: u32,
     pub hdop: Option<f32>,
     pub latitude: Option<f32>,
     pub longitude: Option<f32>,
+    pub time: Option<GpsTime>,
+}
+
+#[derive(Clone)]
+pub struct GpsTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub min: u8,
+    pub sec: u8,
 }
 
 pub struct Gps {
     parser: ublox::Parser<GpsBuffer>,
 
+    output: GpsData,
+
     updated: Option<()>, // atomic bool???
 
-    sat_in_use: u8,
-    course: Option<f32>,
-    hdop: Option<f32>,
-    latitude: Option<f32>,
-    longitude: Option<f32>,
     speed_samples: AverageBuffer<SPEED_SAMPLES>,
     avg_speed_samples: AverageBuffer<SPEED_AVG_SAMPLES>,
-    speed: f32,
-    avg_speed: f32,
-    max_speed: f32,
-    max_avg_speed: f32,
 }
 
 impl Gps {
@@ -50,18 +56,23 @@ impl Gps {
 
         Gps {
             parser,
+            output: GpsData {
+                sat_in_use: 0,
+                course: None,
+                hdop: None,
+                latitude: None,
+                longitude: None,
+                speed: 0f32,
+                distance_m: 0,
+                time: None,
+                max_speed: 0f32,
+                avg_speed: 0f32,
+                max_avg_speed: 0f32,
+            },
+
             updated: Option::Some(()),
-            sat_in_use: 0,
-            course: None,
-            hdop: None,
-            latitude: None,
-            longitude: None,
             speed_samples: AverageBuffer::new(),
             avg_speed_samples: AverageBuffer::new(),
-            speed: 0f32,
-            max_speed: 0f32,
-            avg_speed: 0f32,
-            max_avg_speed: 0f32,
         }
     }
 
@@ -127,10 +138,15 @@ impl Gps {
         self.serial_write(serial, &msg);
         self.serial_wait_for_ack::<S, CfgRate>(serial)?;
 
-        // Enable the NavPosVelTime packet
+        // Enable the packets required
         rprintln!("gps: enable NavPosVelTime");
         let msg = CfgMsgAllPortsBuilder::set_rate_for::<NavPosVelTime>([0, 1, 0, 0, 0, 0])
             .into_packet_bytes();
+        self.serial_write(serial, &msg);
+        self.serial_wait_for_ack::<S, CfgMsgAllPorts>(serial)?;
+        rprintln!("gps: enable NavOdo");
+        let msg =
+            CfgMsgAllPortsBuilder::set_rate_for::<NavOdo>([0, 1, 0, 0, 0, 0]).into_packet_bytes();
         self.serial_write(serial, &msg);
         self.serial_wait_for_ack::<S, CfgMsgAllPorts>(serial)?;
 
@@ -144,9 +160,9 @@ impl Gps {
 
     fn serial_write<S: serial::Write<u8>>(&mut self, serial: &mut S, msg: &[u8]) {
         for b in msg {
-            block!(serial.write(*b));
+            let _ = block!(serial.write(*b));
         }
-        block!(serial.flush());
+        let _ = block!(serial.flush());
     }
 
     fn serial_wait_for_ack<S: serial::Read<u8>, T: ublox::UbxPacketMeta>(
@@ -218,31 +234,38 @@ impl Gps {
             match it.next() {
                 Some(Ok(ublox::PacketRef::NavPosVelTime(sol))) => {
                     rprintln!("gps: NavPosVelTime {}", sol.flags().bits());
-                    self.sat_in_use = sol.num_satellites();
+                    self.output.sat_in_use = sol.num_satellites();
                     if sol.flags().contains(ublox::NavPosVelTimeFlags::GPS_FIX_OK) {
-                        self.hdop = None;
-                        self.latitude = Some(degrees_from_raw(sol.lat_degrees_raw()));
-                        self.longitude = Some(degrees_from_raw(sol.lon_degrees_raw()));
-                        self.course = Some(heading_from_raw(sol.heading_degrees_raw()));
+                        self.output.hdop = None;
+                        self.output.latitude = Some(degrees_from_raw(sol.lat_degrees_raw()));
+                        self.output.longitude = Some(degrees_from_raw(sol.lon_degrees_raw()));
+                        self.output.course = Some(heading_from_raw(sol.heading_degrees_raw()));
+                        self.output.time = Some(GpsTime {
+                            year: sol.year(),
+                            month: sol.month(),
+                            day: sol.day(),
+                            hour: sol.hour(),
+                            min: sol.min(),
+                            sec: sol.sec(),
+                        });
                     } else {
-                        self.hdop = None;
-                        self.latitude = None;
-                        self.longitude = None;
-                        self.course = None;
+                        self.output.hdop = None;
+                        self.output.latitude = None;
+                        self.output.longitude = None;
+                        self.output.course = None;
+                        self.output.time = None;
                         self.speed_samples = AverageBuffer::new();
                         self.avg_speed_samples = AverageBuffer::new();
                     }
                     let raw_speed = knots_from_raw(sol.ground_speed_raw());
 
                     self.speed_samples.add(raw_speed);
-                    self.speed = self.speed_samples.avg_value();
-                    update_max(&mut self.max_speed, self.speed);
+                    self.output.speed = self.speed_samples.avg_value();
+                    update_max(&mut self.output.max_speed, self.output.speed);
 
                     self.avg_speed_samples.add(raw_speed);
-                    self.avg_speed = self.avg_speed_samples.avg_value();
-                    update_max(&mut self.max_avg_speed, self.avg_speed);
-
-                    self.updated = Some(());
+                    self.output.avg_speed = self.avg_speed_samples.avg_value();
+                    update_max(&mut self.output.max_avg_speed, self.output.avg_speed);
                 }
                 Some(Ok(ublox::PacketRef::MonVer(monver))) => {
                     rprintln!(
@@ -250,6 +273,10 @@ impl Gps {
                         monver.hardware_version(),
                         monver.software_version()
                     );
+                }
+                Some(Ok(ublox::PacketRef::NavOdo(odo))) => {
+                    self.output.distance_m = odo.distance();
+                    self.updated = Some(());
                 }
                 Some(Ok(_)) => {
                     rprintln!("gps: ignored unused packet");
@@ -270,17 +297,7 @@ impl Gps {
     pub fn take(&mut self) -> Option<GpsData> {
         let updated = self.updated.take();
         if let Some(()) = updated {
-            Some(GpsData {
-                sat_in_use: self.sat_in_use,
-                course: self.course,
-                hdop: self.hdop,
-                latitude: self.latitude,
-                longitude: self.longitude,
-                speed: self.speed,
-                avg_speed: self.avg_speed,
-                max_speed: self.max_speed,
-                max_avg_speed: self.max_avg_speed,
-            })
+            Some(self.output.clone())
         } else {
             None
         }
