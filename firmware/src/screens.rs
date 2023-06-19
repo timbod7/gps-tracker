@@ -273,7 +273,7 @@ impl StatsScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         if let Some(otime) = value.updated() {
-            let font = layout.font_18();
+            let font = layout.font_24();
             let mut buf: [u8; 20] = [0; 20];
             let mut w = U8Writer::new(&mut buf);
             if let Some(time) = otime {

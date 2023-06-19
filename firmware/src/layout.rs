@@ -43,6 +43,7 @@ type MTextStyle = MonoTextStyle<'static, DPixelColor>;
 
 pub struct Layout {
     pub char_18: MTextStyle,
+    pub char_24: MTextStyle,
     pub char_78: MTextStyle,
     pub char_156: MTextStyle,
     pub text_style: TextStyle,
@@ -54,6 +55,11 @@ impl Layout {
     pub fn new() -> Layout {
         let char_18 = MonoTextStyleBuilder::new()
             .font(&profont::PROFONT_18_POINT)
+            .text_color(WHITE)
+            .background_color(BLACK)
+            .build();
+        let char_24 = MonoTextStyleBuilder::new()
+            .font(&profont::PROFONT_24_POINT)
             .text_color(WHITE)
             .background_color(BLACK)
             .build();
@@ -76,6 +82,7 @@ impl Layout {
             .build();
         return Layout {
             char_18,
+            char_24,
             char_78,
             char_156,
             text_style,
@@ -87,6 +94,14 @@ impl Layout {
     pub fn font_18(&self) -> Font {
         Font {
             char_style: &self.char_18,
+            text_style: &self.text_style,
+            fg_fill_style: &self.fg_fill_style,
+        }
+    }
+
+    pub fn font_24(&self) -> Font {
+        Font {
+            char_style: &self.char_24,
             text_style: &self.text_style,
             fg_fill_style: &self.fg_fill_style,
         }
