@@ -148,13 +148,8 @@ mod app {
         let delay = cx.device.TIM5.delay_us(&clocks);
         let mut display = memory_display::new_ls027b7dh01(spi, cs, delay);
         let layout = crate::layout::Layout::new();
-        layout
-            .write_str(
-                &layout.char_18,
-                &mut display,
-                layout.char_point(&layout.char_18, 0, 0),
-                "booting...",
-            )
+        let font = layout.font_18();
+        font.write_str(&mut display, font.char_point(0, 0), "booting...")
             .unwrap();
         display.refresh();
 

@@ -84,6 +84,30 @@ impl Layout {
         };
     }
 
+    pub fn font_18(&self) -> Font {
+        Font {
+            char_style: &self.char_18,
+            text_style: &self.text_style,
+            fg_fill_style: &self.fg_fill_style,
+        }
+    }
+
+    pub fn font_78(&self) -> Font {
+        Font {
+            char_style: &self.char_78,
+            text_style: &self.text_style,
+            fg_fill_style: &self.fg_fill_style,
+        }
+    }
+
+    pub fn font_156(&self) -> Font {
+        Font {
+            char_style: &self.char_156,
+            text_style: &self.text_style,
+            fg_fill_style: &self.fg_fill_style,
+        }
+    }
+
     pub fn clear<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = DPixelColor>,
@@ -93,10 +117,17 @@ impl Layout {
             .draw(display)?;
         Result::Ok(())
     }
+}
 
+pub struct Font<'a> {
+    pub char_style: &'a MTextStyle,
+    pub text_style: &'a TextStyle,
+    pub fg_fill_style: &'a PrimitiveStyle<DPixelColor>,
+}
+
+impl<'a> Font<'a> {
     pub fn write_str<D>(
         &self,
-        char_style: &MTextStyle,
         display: &mut D,
         loc: Point,
         content: &str,
@@ -104,28 +135,21 @@ impl Layout {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        Text::with_text_style(content, loc, *char_style, self.text_style).draw(display)
+        Text::with_text_style(content, loc, *self.char_style, *self.text_style).draw(display)
     }
 
-    pub fn write_char<D>(
-        &self,
-        char_style: &MTextStyle,
-        display: &mut D,
-        loc: Point,
-        c: char,
-    ) -> Result<Point, D::Error>
+    pub fn write_char<D>(&self, display: &mut D, loc: Point, c: char) -> Result<Point, D::Error>
     where
         D: DrawTarget<Color = DPixelColor>,
     {
         let mut buf: [u8; 4] = [0; 4];
         let mut w = U8Writer::new(&mut buf);
         w.write_char(c).unwrap();
-        Text::with_text_style(w.as_str(), loc, *char_style, self.text_style).draw(display)
+        Text::with_text_style(w.as_str(), loc, *self.char_style, *self.text_style).draw(display)
     }
 
     pub fn write_kerned_str<D>(
         &self,
-        char_style: &MTextStyle,
         display: &mut D,
         loc: Point,
         content: &str,
@@ -139,10 +163,10 @@ impl Layout {
         loop {
             let d = remaining.find('.');
             let s = &remaining[0..d.unwrap_or(remaining.len())];
-            cursor =
-                Text::with_text_style(s, cursor, *char_style, self.text_style).draw(display)?;
+            cursor = Text::with_text_style(s, cursor, *self.char_style, *self.text_style)
+                .draw(display)?;
             if let Some(idp) = d {
-                cursor = self.write_kerned_dp(char_style, display, cursor)?;
+                cursor = self.write_kerned_dp(display, cursor)?;
                 remaining = &remaining[idp + 1..];
             } else {
                 break Ok(cursor);
@@ -150,28 +174,22 @@ impl Layout {
         }
     }
 
-    pub fn write_kerned_dp<D>(
-        &self,
-        char_style: &MTextStyle,
-        display: &mut D,
-        loc: Point,
-    ) -> Result<Point, D::Error>
+    pub fn write_kerned_dp<D>(&self, display: &mut D, loc: Point) -> Result<Point, D::Error>
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        let char_height = char_style.font.character_size.height as i32;
+        let char_height = self.char_style.font.character_size.height as i32;
         let diam = char_height / 7;
         let kern = 0;
         let topleft = loc + Point::new(kern, char_height - diam - 4);
         Circle::new(topleft, diam as u32)
-            .into_styled(self.fg_fill_style)
+            .into_styled(*self.fg_fill_style)
             .draw(display)?;
         Result::Ok(loc + Point::new(kern * 2 + diam, 0))
     }
 
     pub fn render_field<D, const N: usize>(
         &self,
-        char_style: &MTextStyle,
         display: &mut D,
         cursor0: Point,
         field: &mut DisplayField<N>,
@@ -180,11 +198,11 @@ impl Layout {
         D: DrawTarget<Color = DPixelColor>,
     {
         let mut cursor = cursor0;
-        let char_width = char_style.font.character_size.width as i32;
+        let char_width = self.char_style.font.character_size.width as i32;
         let left = Point::new(char_width, 0);
         for i in 0..field.buf.len() {
             if let Some(c) = field.getdirtychar(i) {
-                self.write_str(char_style, display, cursor, c)?;
+                self.write_str(display, cursor, c)?;
             }
             cursor = cursor + left;
         }
@@ -192,13 +210,21 @@ impl Layout {
         Result::Ok(cursor)
     }
 
-    pub fn char_point(&self, char_style: &MTextStyle, x: i32, y: i32) -> Point {
-        let char_width = char_style.font.character_size.width as i32;
-        let char_height = char_style.font.character_size.height as i32;
+    pub fn char_point(&self, x: i32, y: i32) -> Point {
+        let char_width = self.char_style.font.character_size.width as i32;
+        let char_height = self.char_style.font.character_size.height as i32;
         Point {
             x: 4 + x * char_width,
             y: 10 + y * char_height,
         }
+    }
+
+    pub fn char_width(&self) -> i32 {
+        self.char_style.font.character_size.width as i32
+    }
+
+    pub fn char_height(&self) -> i32 {
+        self.char_style.font.character_size.height as i32
     }
 }
 
@@ -262,18 +288,6 @@ macro_rules! write_field {
       u8w.fill(' ' as u8);
       $displayfield.update_from(&buf);
       r
-    }
-  }
-}
-
-#[macro_export]
-macro_rules! write_field0 {
-  ($buf:expr, $($arg:tt)*) => {
-    {
-      let mut buf = $buf;
-      let mut u8w = U8Writer::new(&mut buf);
-      let r = u8w.write_fmt(core::format_args!($($arg)*));
-      from_utf8(&buf[0..u8w.len()]).unwrap()
     }
   }
 }

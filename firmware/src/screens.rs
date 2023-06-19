@@ -102,21 +102,18 @@ impl StatusLine {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        let char_width = layout.char_18.font.character_size.width as i32;
-        let char_height = layout.char_18.font.character_size.height as i32;
-        layout.render_field(
-            &layout.char_18,
+        let font = layout.font_18();
+        font.render_field(
             display,
-            Point::new(char_width * 2, char_height / 2),
+            Point::new(font.char_width() * 2, font.char_height() / 2),
             &mut self.sats_field,
         )?;
         if let Some(bat_percent) = self.bat_percent {
             render_battery_top_centre(display, layout, bat_percent)?;
         }
-        layout.render_field(
-            &layout.char_18,
+        font.render_field(
             display,
-            Point::new(char_width * 29, char_height / 2),
+            Point::new(font.char_width() * 29, font.char_height() / 2),
             &mut self.label,
         )?;
         Result::Ok(())
@@ -161,7 +158,7 @@ impl SpeedScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         self.status_line.render(layout, display)?;
-        self.render_speed(layout, display, layout.char_point(&layout.char_18, 0, 2))?;
+        self.render_speed(layout, display, layout.font_18().char_point(0, 2))?;
         Result::Ok(())
     }
 
@@ -174,26 +171,27 @@ impl SpeedScreen {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
+        let font = layout.font_156();
         let mut cursor = loc;
-        let nextc = Point::new(layout.char_156.font.character_size.width as i32, 0);
+        let nextc = Point::new(font.char_width(), 0);
 
         if let Some(d) = self.speed_digits[0].updated() {
             let mut c = char::from_digit(*d as u32, 10).unwrap();
             c = if c == '0' { ' ' } else { c };
-            cursor = layout.write_char(&layout.char_156, display, cursor, c)?;
+            cursor = font.write_char(display, cursor, c)?;
         } else {
             cursor = cursor + nextc;
         }
         if let Some(d) = self.speed_digits[1].updated() {
             let c = char::from_digit(*d as u32, 10).unwrap();
-            cursor = layout.write_char(&layout.char_156, display, cursor, c)?;
+            cursor = font.write_char(display, cursor, c)?;
         } else {
             cursor = cursor + nextc;
         }
-        cursor = layout.write_kerned_dp(&layout.char_156, display, cursor)?;
+        cursor = font.write_kerned_dp(display, cursor)?;
         if let Some(d) = self.speed_digits[2].updated() {
             let c = char::from_digit(*d as u32, 10).unwrap();
-            layout.write_char(&layout.char_156, display, cursor, c)?;
+            font.write_char(display, cursor, c)?;
         }
         Result::Ok(())
     }
@@ -235,6 +233,7 @@ impl StatsScreen {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
+        let font_18 = layout.font_18();
         let (x0, x1, y0, y1) = (0, 205, 35, 155);
         let tl = Point::new(x0, y0);
         let tr = Point::new(x1, y0);
@@ -249,16 +248,16 @@ impl StatsScreen {
             .into_styled(layout.fg_fill_style)
             .draw(display)?;
 
-        layout.write_str(&layout.char_18, display, tl + labeld, "max kt")?;
+        font_18.write_str(display, tl + labeld, "max kt")?;
         Self::render_f32_dd_d(layout, display, tl, &mut self.max_speed)?;
 
-        layout.write_str(&layout.char_18, display, tr + labeld, "max kt avg10")?;
+        font_18.write_str(display, tr + labeld, "max kt avg10")?;
         Self::render_f32_dd_d(layout, display, tr, &mut self.max_avg_speed)?;
 
-        layout.write_str(&layout.char_18, display, bl + labeld, "dist nm")?;
+        font_18.write_str(display, bl + labeld, "dist nm")?;
         Self::render_f32_dd_d(layout, display, bl, &mut self.distance_nm)?;
 
-        layout.write_str(&layout.char_18, display, br + labeld, "time")?;
+        font_18.write_str(display, br + labeld, "time")?;
         Self::render_time(layout, display, br, &mut self.time)?;
 
         Result::Ok(())
@@ -273,16 +272,17 @@ impl StatsScreen {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        let mut buf: [u8; 20] = [0; 20];
-        let mut w = U8Writer::new(&mut buf);
         if let Some(otime) = value.updated() {
+            let font = layout.font_18();
+            let mut buf: [u8; 20] = [0; 20];
+            let mut w = U8Writer::new(&mut buf);
             if let Some(time) = otime {
                 write!(w, "{:02}:{:02}:{:02}", time.hour, time.min, time.sec).unwrap();
             } else {
                 write!(w, "--:--:--").unwrap();
             }
             let dloc = Point::new(40, 20);
-            layout.write_str(&layout.char_18, display, loc + dloc, w.as_str())?;
+            font.write_str(display, loc + dloc, w.as_str())?;
         }
         Ok(())
     }
@@ -297,6 +297,7 @@ impl StatsScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         if let Some(value) = value.updated() {
+            let font = layout.font_78();
             let mut buf: [u8; 8] = [0; 8];
             let mut w = U8Writer::new(&mut buf);
 
@@ -304,7 +305,7 @@ impl StatsScreen {
             w.write_number(2, ' ', value / 10).unwrap();
             w.write_char('.').unwrap();
             w.write_number(1, '0', value % 10).unwrap();
-            layout.write_kerned_str(&layout.char_78, display, loc, w.as_str())?;
+            font.write_kerned_str(display, loc, w.as_str())?;
         }
         Result::Ok(())
     }
@@ -344,7 +345,7 @@ impl CogScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         self.status_line.render(layout, display)?;
-        self.render_cog(layout, display, layout.char_point(&layout.char_18, 0, 2))?;
+        self.render_cog(layout, display, layout.font_18().char_point(0, 2))?;
         Result::Ok(())
     }
 
@@ -357,6 +358,7 @@ impl CogScreen {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
+        let font = layout.font_156();
         let mut cursor = loc;
         let nextc = Point::new(layout.char_156.font.character_size.width as i32, 0);
         for i in 0..3 {
@@ -365,7 +367,7 @@ impl CogScreen {
                     Some(d) => char::from_digit(d as u32, 10).unwrap(),
                     None => '-',
                 };
-                cursor = layout.write_char(&layout.char_156, display, cursor, c)?
+                cursor = font.write_char(display, cursor, c)?
             } else {
                 cursor = cursor + nextc;
             }
@@ -425,23 +427,22 @@ impl MiscScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         self.status_line.render(layout, display)?;
-        let char_width = layout.char_18.font.character_size.width as i32;
-        let char_height = layout.char_18.font.character_size.height as i32;
+        let font = layout.font_18();
 
-        let mut cursor = Point::new(char_width * 2, char_height * 3 / 2);
-        let down = Point::new(0, char_height);
+        let mut cursor = Point::new(font.char_width() * 2, font.char_height() * 3 / 2);
+        let down = Point::new(0, font.char_height());
         cursor = cursor + down;
-        layout.render_field(&layout.char_18, display, cursor, &mut self.hdop_field)?;
+        font.render_field(display, cursor, &mut self.hdop_field)?;
         cursor = cursor + down;
-        layout.render_field(&layout.char_18, display, cursor, &mut self.lat_field)?;
+        font.render_field(display, cursor, &mut self.lat_field)?;
         cursor = cursor + down;
-        layout.render_field(&layout.char_18, display, cursor, &mut self.lng_field)?;
+        font.render_field(display, cursor, &mut self.lng_field)?;
         cursor = cursor + down;
-        layout.render_field(&layout.char_18, display, cursor, &mut self.speed_field)?;
+        font.render_field(display, cursor, &mut self.speed_field)?;
         cursor = cursor + down;
-        layout.render_field(&layout.char_18, display, cursor, &mut self.max_speed_field)?;
+        font.render_field(display, cursor, &mut self.max_speed_field)?;
         cursor = cursor + down;
-        layout.render_field(&layout.char_18, display, cursor, &mut self.vbat_field)?;
+        font.render_field(display, cursor, &mut self.vbat_field)?;
 
         Result::Ok(())
     }
