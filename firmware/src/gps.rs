@@ -28,7 +28,7 @@ pub struct GpsData {
     pub time: Option<GpsTime>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GpsTime {
     pub year: u16,
     pub month: u8,

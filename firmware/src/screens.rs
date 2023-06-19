@@ -1,10 +1,9 @@
-use crate::layout::{
-    DPixelColor, DisplayField, Layout, BIG_CHAR_WIDTH, CHAR_HEIGHT, CHAR_WIDTH, MED_CHAR_WIDTH,
-};
+use crate::gps::{GpsData, GpsTime};
+use crate::layout::{DPixelColor, DisplayField, Layout, BIG_CHAR_WIDTH, CHAR_HEIGHT, CHAR_WIDTH};
+use crate::u8writer::U8Writer;
 use crate::write_field;
-use crate::{gps::GpsData, u8writer::U8Writer};
+
 use core::fmt::Write;
-use core::str;
 use embedded_graphics::{
     prelude::*,
     primitives::{Line, Rectangle},
@@ -34,10 +33,8 @@ impl Screens {
         D: DrawTarget<Color = DPixelColor>,
     {
         match &mut self.screens {
-            AnyScreen::Speed(_) => {
-                self.screens = AnyScreen::SpeedDetails(SpeedDetailsScreen::new())
-            }
-            AnyScreen::SpeedDetails(_) => self.screens = AnyScreen::Cog(CogScreen::new()),
+            AnyScreen::Speed(_) => self.screens = AnyScreen::Stats(StatsScreen::new()),
+            AnyScreen::Stats(_) => self.screens = AnyScreen::Cog(CogScreen::new()),
             AnyScreen::Cog(_) => self.screens = AnyScreen::Misc(MiscScreen::new()),
             AnyScreen::Misc(_) => self.screens = AnyScreen::Speed(SpeedScreen::new()),
         }
@@ -51,7 +48,7 @@ impl Screens {
     {
         match &mut self.screens {
             AnyScreen::Speed(s) => s.render(&self.layout, display),
-            AnyScreen::SpeedDetails(s) => s.render(&self.layout, display),
+            AnyScreen::Stats(s) => s.render(&self.layout, display),
             AnyScreen::Cog(s) => s.render(&self.layout, display),
             AnyScreen::Misc(s) => s.render(&self.layout, display),
         }
@@ -68,7 +65,7 @@ impl Screens {
     pub fn update(&mut self, update: &Update) {
         match &mut self.screens {
             AnyScreen::Speed(s) => s.update(update),
-            AnyScreen::SpeedDetails(s) => s.update(update),
+            AnyScreen::Stats(s) => s.update(update),
             AnyScreen::Cog(s) => s.update(update),
             AnyScreen::Misc(s) => s.update(update),
         }
@@ -77,7 +74,7 @@ impl Screens {
 
 enum AnyScreen {
     Speed(SpeedScreen),
-    SpeedDetails(SpeedDetailsScreen),
+    Stats(StatsScreen),
     Cog(CogScreen),
     Misc(MiscScreen),
 }
@@ -144,14 +141,14 @@ impl StatusLine {
 
 pub struct SpeedScreen {
     status_line: StatusLine,
-    speed_field: DisplayField<3>,
+    speed_digits: [Updateable<u8>; 3],
 }
 
 impl SpeedScreen {
     pub fn new() -> Self {
         SpeedScreen {
             status_line: StatusLine::new("kt"),
-            speed_field: DisplayField::new(),
+            speed_digits: [Updateable::new(0), Updateable::new(0), Updateable::new(0)],
         }
     }
 
@@ -176,21 +173,24 @@ impl SpeedScreen {
         let mut cursor = loc;
         let nextc = Point::new(BIG_CHAR_WIDTH, 0);
 
-        if let Some(c) = self.speed_field.getdirtychar(0) {
-            cursor = layout.write_big_text(display, cursor, c)?
+        if let Some(d) = self.speed_digits[0].updated() {
+            let mut c = char::from_digit(*d as u32, 10).unwrap();
+            c = if c == '0' { ' ' } else { c };
+            cursor = layout.write_big_char(display, cursor, c)?;
         } else {
             cursor = cursor + nextc;
         }
-        if let Some(c) = self.speed_field.getdirtychar(1) {
-            cursor = layout.write_big_text(display, cursor, c)?
+        if let Some(d) = self.speed_digits[1].updated() {
+            let c = char::from_digit(*d as u32, 10).unwrap();
+            cursor = layout.write_big_char(display, cursor, c)?;
         } else {
             cursor = cursor + nextc;
         }
         cursor = layout.write_big_dp(display, cursor)?;
-        if let Some(c) = self.speed_field.getdirtychar(2) {
-            layout.write_big_text(display, cursor, c)?;
+        if let Some(d) = self.speed_digits[2].updated() {
+            let c = char::from_digit(*d as u32, 10).unwrap();
+            layout.write_big_char(display, cursor, c)?;
         }
-        self.speed_field.clear_dirty();
         Result::Ok(())
     }
 
@@ -203,24 +203,27 @@ impl SpeedScreen {
     }
 
     fn update_gps(&mut self, gps: &GpsData) {
-        write_field!(self.speed_field, "{:3}", (gps.speed * 10.0).round() as u32).unwrap();
+        let speed = (gps.speed * 10.0).round() as u32;
+        self.speed_digits[0].set(((speed / 100) % 10) as u8);
+        self.speed_digits[1].set(((speed / 10) % 10) as u8);
+        self.speed_digits[2].set((speed % 10) as u8);
     }
 }
 
-pub struct SpeedDetailsScreen {
-    speed_field: DisplayField<3>,
-    max_speed_field: DisplayField<3>,
-    avg_speed_field: DisplayField<3>,
-    max_avg_speed_field: DisplayField<3>,
+pub struct StatsScreen {
+    max_speed: Updateable<f32>,
+    max_avg_speed: Updateable<f32>,
+    distance_nm: Updateable<f32>,
+    time: Updateable<Option<GpsTime>>,
 }
 
-impl SpeedDetailsScreen {
+impl StatsScreen {
     pub fn new() -> Self {
-        SpeedDetailsScreen {
-            speed_field: DisplayField::new(),
-            max_speed_field: DisplayField::new(),
-            avg_speed_field: DisplayField::new(),
-            max_avg_speed_field: DisplayField::new(),
+        StatsScreen {
+            max_speed: Updateable::new(0.0),
+            max_avg_speed: Updateable::new(0.0),
+            distance_nm: Updateable::new(0.0),
+            time: Updateable::new(None),
         }
     }
 
@@ -229,142 +232,106 @@ impl SpeedDetailsScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         let (x0, x1, y0, y1) = (0, 205, 35, 155);
-        let (labeldx, labeldy) = (10, -30);
-        layout.write_text(
-            display,
-            Point {
-                x: x0 + labeldx,
-                y: y0 + labeldy,
-            },
-            "kt",
-        )?;
-        Self::render_speed(
-            layout,
-            display,
-            Point { x: x0, y: y0 },
-            &mut self.speed_field,
-        )?;
-        layout.write_text(
-            display,
-            Point {
-                x: x0 + labeldx,
-                y: y1 + labeldy,
-            },
-            "kt avg10",
-        )?;
-        Self::render_speed(
-            layout,
-            display,
-            Point { x: x0, y: y1 },
-            &mut self.avg_speed_field,
-        )?;
-        layout.write_text(
-            display,
-            Point {
-                x: x1 + labeldx,
-                y: y0 + labeldy,
-            },
-            "max",
-        )?;
-        Self::render_speed(
-            layout,
-            display,
-            Point { x: x1, y: y0 },
-            &mut self.max_speed_field,
-        )?;
-        layout.write_text(
-            display,
-            Point {
-                x: x1 + labeldx,
-                y: y1 + labeldy,
-            },
-            "max",
-        )?;
-        Self::render_speed(
-            layout,
-            display,
-            Point { x: x1, y: y1 },
-            &mut self.max_avg_speed_field,
-        )?;
+        let tl = Point::new(x0, y0);
+        let tr = Point::new(x1, y0);
+        let bl = Point::new(x0, y1);
+        let br = Point::new(x1, y1);
+        let labeld = Point::new(10, -30);
+
         Line::new(Point::new(0, 120), Point::new(400, 120))
             .into_styled(layout.fg_fill_style)
             .draw(display)?;
         Line::new(Point::new(200, 0), Point::new(200, 240))
             .into_styled(layout.fg_fill_style)
             .draw(display)?;
+
+        layout.write_text(display, tl + labeld, "max kt")?;
+        Self::render_f32_dd_d(layout, display, tl, &mut self.max_speed)?;
+
+        layout.write_text(display, tr + labeld, "max kt avg10")?;
+        Self::render_f32_dd_d(layout, display, tr, &mut self.max_avg_speed)?;
+
+        layout.write_text(display, bl + labeld, "dist nm")?;
+        Self::render_f32_dd_d(layout, display, bl, &mut self.distance_nm)?;
+
+        layout.write_text(display, br + labeld, "time")?;
+        Self::render_time(layout, display, br, &mut self.time)?;
+
         Result::Ok(())
     }
 
-    fn render_speed<D>(
+    fn render_time<D>(
         layout: &Layout,
         display: &mut D,
         loc: Point,
-        field: &mut DisplayField<3>,
+        value: &mut Updateable<Option<GpsTime>>,
     ) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        let mut cursor = loc;
-        let nextc = Point::new(MED_CHAR_WIDTH, 0);
+        let mut buf: [u8; 20] = [0; 20];
+        let mut w = U8Writer::new(&mut buf);
+        if let Some(otime) = value.updated() {
+            if let Some(time) = otime {
+                write!(w, "{:02}:{:02}:{:02}", time.hour, time.min, time.sec).unwrap();
+            } else {
+                write!(w, "--:--:--").unwrap();
+            }
+            let dloc = Point::new(40, 20);
+            layout.write_text(display, loc + dloc, w.as_str())?;
+        }
+        Ok(())
+    }
 
-        if let Some(c) = field.getdirtychar(0) {
-            cursor = layout.write_med_text(display, cursor, c)?
-        } else {
-            cursor = cursor + nextc;
+    fn render_f32_dd_d<D>(
+        layout: &Layout,
+        display: &mut D,
+        loc: Point,
+        value: &mut Updateable<f32>,
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = DPixelColor>,
+    {
+        if let Some(value) = value.updated() {
+            let mut buf: [u8; 8] = [0; 8];
+            let mut w = U8Writer::new(&mut buf);
+
+            let value = (value * 10.0).round() as u32;
+            w.write_number(2, ' ', value / 10).unwrap();
+            w.write_char('.').unwrap();
+            w.write_number(1, '0', value % 10).unwrap();
+            layout.write_med_text(display, loc, w.as_str())?;
         }
-        if let Some(c) = field.getdirtychar(1) {
-            cursor = layout.write_med_text(display, cursor, c)?
-        } else {
-            cursor = cursor + nextc;
-        }
-        cursor = layout.write_med_dp(display, cursor)?;
-        if let Some(c) = field.getdirtychar(2) {
-            layout.write_med_text(display, cursor, c)?;
-        }
-        field.clear_dirty();
         Result::Ok(())
     }
 
     pub fn update(&mut self, update: &Update) {
         match update {
-            Update::Gps(gps) => self.update_gps(gps),
+            Update::Gps(gps) => {
+                self.max_speed.set(gps.max_speed);
+                self.max_avg_speed.set(gps.max_avg_speed);
+                self.distance_nm.set(gps.distance_m as f32 / 1852.0);
+                self.time.set(gps.time.clone());
+            }
             _ => (),
         }
-    }
-
-    fn update_gps(&mut self, gps: &GpsData) {
-        write_field!(self.speed_field, "{:3}", (gps.speed * 10.0).round() as u32).unwrap();
-        write_field!(
-            self.max_speed_field,
-            "{:3}",
-            (gps.max_speed * 10.0).round() as u32
-        )
-        .unwrap();
-        write_field!(
-            self.avg_speed_field,
-            "{:3}",
-            (gps.avg_speed * 10.0).round() as u32
-        )
-        .unwrap();
-        write_field!(
-            self.max_avg_speed_field,
-            "{:3}",
-            (gps.max_avg_speed * 10.0).round() as u32
-        )
-        .unwrap();
     }
 }
 
 pub struct CogScreen {
     status_line: StatusLine,
-    cog_field: DisplayField<3>,
+    cog_digits: [Updateable<Option<u8>>; 3],
 }
 
 impl CogScreen {
     pub fn new() -> Self {
         CogScreen {
             status_line: StatusLine::new("COG"),
-            cog_field: DisplayField::new(),
+            cog_digits: [
+                Updateable::new(None),
+                Updateable::new(None),
+                Updateable::new(None),
+            ],
         }
     }
 
@@ -389,13 +356,16 @@ impl CogScreen {
         let mut cursor = loc;
         let nextc = Point::new(BIG_CHAR_WIDTH, 0);
         for i in 0..3 {
-            if let Some(c) = self.cog_field.getdirtychar(i) {
-                cursor = layout.write_big_text(display, cursor, c)?
+            if let Some(od) = self.cog_digits[i].updated() {
+                let c = match *od {
+                    Some(d) => char::from_digit(d as u32, 10).unwrap(),
+                    None => '-',
+                };
+                cursor = layout.write_big_char(display, cursor, c)?
             } else {
                 cursor = cursor + nextc;
             }
         }
-        self.cog_field.clear_dirty();
         Result::Ok(())
     }
 
@@ -411,10 +381,14 @@ impl CogScreen {
         self.status_line.update_gps(gps);
 
         if let Some(course) = gps.course {
-            let cog = course.round() as u16;
-            write_field!(self.cog_field, "{:0>3}", cog).unwrap();
+            let cog = course.round() as u32;
+            self.cog_digits[0].set(Some(((cog / 100) % 10) as u8));
+            self.cog_digits[1].set(Some(((cog / 10) % 10) as u8));
+            self.cog_digits[2].set(Some((cog % 10) as u8));
         } else {
-            write_field!(self.cog_field, "---").unwrap();
+            self.cog_digits[0].set(None);
+            self.cog_digits[1].set(None);
+            self.cog_digits[2].set(None);
         }
     }
 }
@@ -564,4 +538,34 @@ where
         .into_styled(layout.fg_fill_style)
         .draw(display)?;
     Ok(())
+}
+
+pub struct Updateable<T> {
+    value: T,
+    updated: bool,
+}
+
+impl<T: PartialEq> Updateable<T> {
+    pub fn new(value: T) -> Self {
+        Updateable {
+            value,
+            updated: true,
+        }
+    }
+
+    pub fn set(&mut self, value: T) {
+        if self.value != value {
+            self.value = value;
+            self.updated = true;
+        }
+    }
+
+    pub fn updated(&mut self) -> Option<&T> {
+        if self.updated {
+            self.updated = false;
+            Some(&self.value)
+        } else {
+            None
+        }
+    }
 }

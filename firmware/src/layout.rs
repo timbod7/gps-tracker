@@ -50,7 +50,7 @@ pub struct Layout {
 
 pub const CHAR_WIDTH: i32 = 12;
 pub const CHAR_HEIGHT: i32 = 22;
-pub const MED_CHAR_WIDTH: i32 = MEDNUMBER_FONT.character_size.width as i32;
+pub const _MED_CHAR_WIDTH: i32 = MEDNUMBER_FONT.character_size.width as i32;
 pub const MED_CHAR_HEIGHT: i32 = MEDNUMBER_FONT.character_size.height as i32;
 pub const BIG_CHAR_WIDTH: i32 = BIGNUMBER_FONT.character_size.width as i32;
 pub const BIG_CHAR_HEIGHT: i32 = BIGNUMBER_FONT.character_size.height as i32;
@@ -120,10 +120,24 @@ impl Layout {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        Text::with_text_style(content, loc, self.med_char_style, self.text_style).draw(display)
+        // Decimal points have their own kerning, so treat them specially
+        let mut remaining = content;
+        let mut cursor = loc;
+        loop {
+            let d = remaining.find('.');
+            let s = &remaining[0..d.unwrap_or(remaining.len())];
+            cursor = Text::with_text_style(s, cursor, self.med_char_style, self.text_style)
+                .draw(display)?;
+            if let Some(idp) = d {
+                cursor = self.write_med_dp(display, cursor)?;
+                remaining = &remaining[idp + 1..];
+            } else {
+                break Ok(cursor);
+            }
+        }
     }
 
-    pub fn write_big_text<D>(
+    pub fn _write_big_text<D>(
         &self,
         display: &mut D,
         loc: Point,
@@ -133,6 +147,16 @@ impl Layout {
         D: DrawTarget<Color = DPixelColor>,
     {
         Text::with_text_style(content, loc, self.big_char_style, self.text_style).draw(display)
+    }
+
+    pub fn write_big_char<D>(&self, display: &mut D, loc: Point, c: char) -> Result<Point, D::Error>
+    where
+        D: DrawTarget<Color = DPixelColor>,
+    {
+        let mut buf: [u8; 4] = [0; 4];
+        let mut w = U8Writer::new(&mut buf);
+        w.write_char(c).unwrap();
+        Text::with_text_style(w.as_str(), loc, self.big_char_style, self.text_style).draw(display)
     }
 
     pub fn write_med_dp<D>(&self, display: &mut D, loc: Point) -> Result<Point, D::Error>
@@ -250,6 +274,18 @@ macro_rules! write_field {
       u8w.fill(' ' as u8);
       $displayfield.update_from(&buf);
       r
+    }
+  }
+}
+
+#[macro_export]
+macro_rules! write_field0 {
+  ($buf:expr, $($arg:tt)*) => {
+    {
+      let mut buf = $buf;
+      let mut u8w = U8Writer::new(&mut buf);
+      let r = u8w.write_fmt(core::format_args!($($arg)*));
+      from_utf8(&buf[0..u8w.len()]).unwrap()
     }
   }
 }
