@@ -39,35 +39,30 @@ const MEDNUMBER_FONT: MonoFont = MonoFont {
     strikethrough: DecorationDimensions::default_strikethrough(40),
 };
 
+type MTextStyle = MonoTextStyle<'static, DPixelColor>;
+
 pub struct Layout {
-    pub char_style: MonoTextStyle<'static, DPixelColor>,
-    pub med_char_style: MonoTextStyle<'static, DPixelColor>,
-    pub big_char_style: MonoTextStyle<'static, DPixelColor>,
+    pub char_18: MTextStyle,
+    pub char_78: MTextStyle,
+    pub char_156: MTextStyle,
     pub text_style: TextStyle,
     pub bg_fill_style: PrimitiveStyle<DPixelColor>,
     pub fg_fill_style: PrimitiveStyle<DPixelColor>,
 }
 
-pub const CHAR_WIDTH: i32 = 12;
-pub const CHAR_HEIGHT: i32 = 22;
-pub const _MED_CHAR_WIDTH: i32 = MEDNUMBER_FONT.character_size.width as i32;
-pub const MED_CHAR_HEIGHT: i32 = MEDNUMBER_FONT.character_size.height as i32;
-pub const BIG_CHAR_WIDTH: i32 = BIGNUMBER_FONT.character_size.width as i32;
-pub const BIG_CHAR_HEIGHT: i32 = BIGNUMBER_FONT.character_size.height as i32;
-
 impl Layout {
     pub fn new() -> Layout {
-        let char_style = MonoTextStyleBuilder::new()
+        let char_18 = MonoTextStyleBuilder::new()
             .font(&profont::PROFONT_18_POINT)
             .text_color(WHITE)
             .background_color(BLACK)
             .build();
-        let med_char_style = MonoTextStyleBuilder::new()
+        let char_78 = MonoTextStyleBuilder::new()
             .font(&MEDNUMBER_FONT)
             .text_color(WHITE)
             .background_color(BLACK)
             .build();
-        let big_char_style = MonoTextStyleBuilder::new()
+        let char_156 = MonoTextStyleBuilder::new()
             .font(&BIGNUMBER_FONT)
             .text_color(WHITE)
             .background_color(BLACK)
@@ -80,9 +75,9 @@ impl Layout {
             .stroke_width(2)
             .build();
         return Layout {
-            char_style,
-            med_char_style,
-            big_char_style,
+            char_18,
+            char_78,
+            char_156,
             text_style,
             bg_fill_style,
             fg_fill_style,
@@ -99,8 +94,9 @@ impl Layout {
         Result::Ok(())
     }
 
-    pub fn write_text<D>(
+    pub fn write_str<D>(
         &self,
+        char_style: &MTextStyle,
         display: &mut D,
         loc: Point,
         content: &str,
@@ -108,11 +104,28 @@ impl Layout {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        Text::with_text_style(content, loc, self.char_style, self.text_style).draw(display)
+        Text::with_text_style(content, loc, *char_style, self.text_style).draw(display)
     }
 
-    pub fn write_med_text<D>(
+    pub fn write_char<D>(
         &self,
+        char_style: &MTextStyle,
+        display: &mut D,
+        loc: Point,
+        c: char,
+    ) -> Result<Point, D::Error>
+    where
+        D: DrawTarget<Color = DPixelColor>,
+    {
+        let mut buf: [u8; 4] = [0; 4];
+        let mut w = U8Writer::new(&mut buf);
+        w.write_char(c).unwrap();
+        Text::with_text_style(w.as_str(), loc, *char_style, self.text_style).draw(display)
+    }
+
+    pub fn write_kerned_str<D>(
+        &self,
+        char_style: &MTextStyle,
         display: &mut D,
         loc: Point,
         content: &str,
@@ -126,10 +139,10 @@ impl Layout {
         loop {
             let d = remaining.find('.');
             let s = &remaining[0..d.unwrap_or(remaining.len())];
-            cursor = Text::with_text_style(s, cursor, self.med_char_style, self.text_style)
-                .draw(display)?;
+            cursor =
+                Text::with_text_style(s, cursor, *char_style, self.text_style).draw(display)?;
             if let Some(idp) = d {
-                cursor = self.write_med_dp(display, cursor)?;
+                cursor = self.write_kerned_dp(char_style, display, cursor)?;
                 remaining = &remaining[idp + 1..];
             } else {
                 break Ok(cursor);
@@ -137,48 +150,19 @@ impl Layout {
         }
     }
 
-    pub fn _write_big_text<D>(
+    pub fn write_kerned_dp<D>(
         &self,
+        char_style: &MTextStyle,
         display: &mut D,
         loc: Point,
-        content: &str,
     ) -> Result<Point, D::Error>
     where
         D: DrawTarget<Color = DPixelColor>,
     {
-        Text::with_text_style(content, loc, self.big_char_style, self.text_style).draw(display)
-    }
-
-    pub fn write_big_char<D>(&self, display: &mut D, loc: Point, c: char) -> Result<Point, D::Error>
-    where
-        D: DrawTarget<Color = DPixelColor>,
-    {
-        let mut buf: [u8; 4] = [0; 4];
-        let mut w = U8Writer::new(&mut buf);
-        w.write_char(c).unwrap();
-        Text::with_text_style(w.as_str(), loc, self.big_char_style, self.text_style).draw(display)
-    }
-
-    pub fn write_med_dp<D>(&self, display: &mut D, loc: Point) -> Result<Point, D::Error>
-    where
-        D: DrawTarget<Color = DPixelColor>,
-    {
-        let diam = MED_CHAR_HEIGHT / 7;
+        let char_height = char_style.font.character_size.height as i32;
+        let diam = char_height / 7;
         let kern = 0;
-        let topleft = loc + Point::new(kern, MED_CHAR_HEIGHT - diam - 4);
-        Circle::new(topleft, diam as u32)
-            .into_styled(self.fg_fill_style)
-            .draw(display)?;
-        Result::Ok(loc + Point::new(kern * 2 + diam, 0))
-    }
-
-    pub fn write_big_dp<D>(&self, display: &mut D, loc: Point) -> Result<Point, D::Error>
-    where
-        D: DrawTarget<Color = DPixelColor>,
-    {
-        let diam = BIG_CHAR_HEIGHT / 7;
-        let kern = 0;
-        let topleft = loc + Point::new(kern, BIG_CHAR_HEIGHT - diam - 4);
+        let topleft = loc + Point::new(kern, char_height - diam - 4);
         Circle::new(topleft, diam as u32)
             .into_styled(self.fg_fill_style)
             .draw(display)?;
@@ -187,6 +171,7 @@ impl Layout {
 
     pub fn render_field<D, const N: usize>(
         &self,
+        char_style: &MTextStyle,
         display: &mut D,
         cursor0: Point,
         field: &mut DisplayField<N>,
@@ -195,10 +180,11 @@ impl Layout {
         D: DrawTarget<Color = DPixelColor>,
     {
         let mut cursor = cursor0;
-        let left = Point::new(CHAR_WIDTH, 0);
+        let char_width = char_style.font.character_size.width as i32;
+        let left = Point::new(char_width, 0);
         for i in 0..field.buf.len() {
             if let Some(c) = field.getdirtychar(i) {
-                self.write_text(display, cursor, c)?;
+                self.write_str(char_style, display, cursor, c)?;
             }
             cursor = cursor + left;
         }
@@ -206,10 +192,12 @@ impl Layout {
         Result::Ok(cursor)
     }
 
-    pub fn char_point(&self, x: i32, y: i32) -> Point {
+    pub fn char_point(&self, char_style: &MTextStyle, x: i32, y: i32) -> Point {
+        let char_width = char_style.font.character_size.width as i32;
+        let char_height = char_style.font.character_size.height as i32;
         Point {
-            x: 4 + x * CHAR_WIDTH,
-            y: 10 + y * CHAR_HEIGHT,
+            x: 4 + x * char_width,
+            y: 10 + y * char_height,
         }
     }
 }

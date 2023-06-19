@@ -1,5 +1,5 @@
 use crate::gps::{GpsData, GpsTime};
-use crate::layout::{DPixelColor, DisplayField, Layout, BIG_CHAR_WIDTH, CHAR_HEIGHT, CHAR_WIDTH};
+use crate::layout::{DPixelColor, DisplayField, Layout};
 use crate::u8writer::U8Writer;
 use crate::write_field;
 
@@ -102,17 +102,21 @@ impl StatusLine {
     where
         D: DrawTarget<Color = DPixelColor>,
     {
+        let char_width = layout.char_18.font.character_size.width as i32;
+        let char_height = layout.char_18.font.character_size.height as i32;
         layout.render_field(
+            &layout.char_18,
             display,
-            Point::new(CHAR_WIDTH * 2, CHAR_HEIGHT / 2),
+            Point::new(char_width * 2, char_height / 2),
             &mut self.sats_field,
         )?;
         if let Some(bat_percent) = self.bat_percent {
             render_battery_top_centre(display, layout, bat_percent)?;
         }
         layout.render_field(
+            &layout.char_18,
             display,
-            Point::new(CHAR_WIDTH * 29, CHAR_HEIGHT / 2),
+            Point::new(char_width * 29, char_height / 2),
             &mut self.label,
         )?;
         Result::Ok(())
@@ -157,7 +161,7 @@ impl SpeedScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         self.status_line.render(layout, display)?;
-        self.render_speed(layout, display, layout.char_point(0, 2))?;
+        self.render_speed(layout, display, layout.char_point(&layout.char_18, 0, 2))?;
         Result::Ok(())
     }
 
@@ -171,25 +175,25 @@ impl SpeedScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         let mut cursor = loc;
-        let nextc = Point::new(BIG_CHAR_WIDTH, 0);
+        let nextc = Point::new(layout.char_156.font.character_size.width as i32, 0);
 
         if let Some(d) = self.speed_digits[0].updated() {
             let mut c = char::from_digit(*d as u32, 10).unwrap();
             c = if c == '0' { ' ' } else { c };
-            cursor = layout.write_big_char(display, cursor, c)?;
+            cursor = layout.write_char(&layout.char_156, display, cursor, c)?;
         } else {
             cursor = cursor + nextc;
         }
         if let Some(d) = self.speed_digits[1].updated() {
             let c = char::from_digit(*d as u32, 10).unwrap();
-            cursor = layout.write_big_char(display, cursor, c)?;
+            cursor = layout.write_char(&layout.char_156, display, cursor, c)?;
         } else {
             cursor = cursor + nextc;
         }
-        cursor = layout.write_big_dp(display, cursor)?;
+        cursor = layout.write_kerned_dp(&layout.char_156, display, cursor)?;
         if let Some(d) = self.speed_digits[2].updated() {
             let c = char::from_digit(*d as u32, 10).unwrap();
-            layout.write_big_char(display, cursor, c)?;
+            layout.write_char(&layout.char_156, display, cursor, c)?;
         }
         Result::Ok(())
     }
@@ -245,16 +249,16 @@ impl StatsScreen {
             .into_styled(layout.fg_fill_style)
             .draw(display)?;
 
-        layout.write_text(display, tl + labeld, "max kt")?;
+        layout.write_str(&layout.char_18, display, tl + labeld, "max kt")?;
         Self::render_f32_dd_d(layout, display, tl, &mut self.max_speed)?;
 
-        layout.write_text(display, tr + labeld, "max kt avg10")?;
+        layout.write_str(&layout.char_18, display, tr + labeld, "max kt avg10")?;
         Self::render_f32_dd_d(layout, display, tr, &mut self.max_avg_speed)?;
 
-        layout.write_text(display, bl + labeld, "dist nm")?;
+        layout.write_str(&layout.char_18, display, bl + labeld, "dist nm")?;
         Self::render_f32_dd_d(layout, display, bl, &mut self.distance_nm)?;
 
-        layout.write_text(display, br + labeld, "time")?;
+        layout.write_str(&layout.char_18, display, br + labeld, "time")?;
         Self::render_time(layout, display, br, &mut self.time)?;
 
         Result::Ok(())
@@ -278,7 +282,7 @@ impl StatsScreen {
                 write!(w, "--:--:--").unwrap();
             }
             let dloc = Point::new(40, 20);
-            layout.write_text(display, loc + dloc, w.as_str())?;
+            layout.write_str(&layout.char_18, display, loc + dloc, w.as_str())?;
         }
         Ok(())
     }
@@ -300,7 +304,7 @@ impl StatsScreen {
             w.write_number(2, ' ', value / 10).unwrap();
             w.write_char('.').unwrap();
             w.write_number(1, '0', value % 10).unwrap();
-            layout.write_med_text(display, loc, w.as_str())?;
+            layout.write_kerned_str(&layout.char_78, display, loc, w.as_str())?;
         }
         Result::Ok(())
     }
@@ -340,7 +344,7 @@ impl CogScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         self.status_line.render(layout, display)?;
-        self.render_cog(layout, display, layout.char_point(0, 2))?;
+        self.render_cog(layout, display, layout.char_point(&layout.char_18, 0, 2))?;
         Result::Ok(())
     }
 
@@ -354,14 +358,14 @@ impl CogScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         let mut cursor = loc;
-        let nextc = Point::new(BIG_CHAR_WIDTH, 0);
+        let nextc = Point::new(layout.char_156.font.character_size.width as i32, 0);
         for i in 0..3 {
             if let Some(od) = self.cog_digits[i].updated() {
                 let c = match *od {
                     Some(d) => char::from_digit(d as u32, 10).unwrap(),
                     None => '-',
                 };
-                cursor = layout.write_big_char(display, cursor, c)?
+                cursor = layout.write_char(&layout.char_156, display, cursor, c)?
             } else {
                 cursor = cursor + nextc;
             }
@@ -421,21 +425,23 @@ impl MiscScreen {
         D: DrawTarget<Color = DPixelColor>,
     {
         self.status_line.render(layout, display)?;
+        let char_width = layout.char_18.font.character_size.width as i32;
+        let char_height = layout.char_18.font.character_size.height as i32;
 
-        let mut cursor = Point::new(CHAR_WIDTH * 2, CHAR_HEIGHT * 3 / 2);
-        let down = Point::new(0, CHAR_HEIGHT);
+        let mut cursor = Point::new(char_width * 2, char_height * 3 / 2);
+        let down = Point::new(0, char_height);
         cursor = cursor + down;
-        layout.render_field(display, cursor, &mut self.hdop_field)?;
+        layout.render_field(&layout.char_18, display, cursor, &mut self.hdop_field)?;
         cursor = cursor + down;
-        layout.render_field(display, cursor, &mut self.lat_field)?;
+        layout.render_field(&layout.char_18, display, cursor, &mut self.lat_field)?;
         cursor = cursor + down;
-        layout.render_field(display, cursor, &mut self.lng_field)?;
+        layout.render_field(&layout.char_18, display, cursor, &mut self.lng_field)?;
         cursor = cursor + down;
-        layout.render_field(display, cursor, &mut self.speed_field)?;
+        layout.render_field(&layout.char_18, display, cursor, &mut self.speed_field)?;
         cursor = cursor + down;
-        layout.render_field(display, cursor, &mut self.max_speed_field)?;
+        layout.render_field(&layout.char_18, display, cursor, &mut self.max_speed_field)?;
         cursor = cursor + down;
-        layout.render_field(display, cursor, &mut self.vbat_field)?;
+        layout.render_field(&layout.char_18, display, cursor, &mut self.vbat_field)?;
 
         Result::Ok(())
     }

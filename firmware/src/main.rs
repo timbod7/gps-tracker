@@ -149,7 +149,12 @@ mod app {
         let mut display = memory_display::new_ls027b7dh01(spi, cs, delay);
         let layout = crate::layout::Layout::new();
         layout
-            .write_text(&mut display, layout.char_point(0, 0), "booting...")
+            .write_str(
+                &layout.char_18,
+                &mut display,
+                layout.char_point(&layout.char_18, 0, 0),
+                "booting...",
+            )
             .unwrap();
         display.refresh();
 
